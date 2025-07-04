@@ -41,7 +41,7 @@ app.post("/globalvendormessage", (req, res) => {
     web.chat
       .postMessage({
         channel: canal,
-        text: `📣 *Mensaje de @${usuario}*: ${texto}`,
+        text: `${texto}`,
       })
       .catch((error) =>
         console.error(
