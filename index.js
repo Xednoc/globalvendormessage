@@ -4,6 +4,7 @@ const { WebClient } = require("@slack/web-api");
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json()); // Para poder procesar JSON también
 
 // El token ahora se lee desde la variable de entorno SLACK_BOT_TOKEN
 const token = process.env.SLACK_BOT_TOKEN;
@@ -26,6 +27,7 @@ const canales = [
   "C06MQ62H0KS",
 ];
 
+// Endpoint para enviar mensaje a múltiples canales (broadcast)
 app.post("/globalvendormessage", (req, res) => {
   const texto = req.body.text;
   const usuario = req.body.user_name;
@@ -52,6 +54,23 @@ app.post("/globalvendormessage", (req, res) => {
   });
 });
 
-app.listen(3000, () => {
-  console.log("Servidor escuchando en puerto 3000");
-});
+// NUEVO endpoint para actualizar un mensaje ya enviado
+app.post("/updatemessage", async (req, res) => {
+  const { channel, ts, newText } = req.body;
+
+  if (!channel || !ts || !newText) {
+    return res.status(400).json({
+      error: "Faltan parámetros: channel, ts o newText",
+    });
+  }
+
+  try {
+    await web.chat.update({
+      channel,
+      ts,
+      text: newText,
+    });
+
+    res.json({
+      response_type:_
+
