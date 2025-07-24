@@ -54,13 +54,20 @@ app.post("/globalvendormessage", (req, res) => {
   });
 });
 
-// NUEVO endpoint para actualizar un mensaje ya enviado
+// Endpoint para actualizar un mensaje ya enviado
 app.post("/updatemessage", async (req, res) => {
-  const { channel, ts, newText } = req.body;
+  const channel = req.body.channel_id;  // Canal donde se ejecuta el comando
+  const text = req.body.text;           // Texto que contiene el ts y el nuevo mensaje
+  const user = req.body.user_name;
 
-  if (!channel || !ts || !newText) {
-    return res.status(400).json({
-      error: "Faltan parámetros: channel, ts o newText",
+  // El texto debe ser: "<ts> <nuevo texto>"
+  const [ts, ...messageParts] = text.trim().split(" ");
+  const newText = messageParts.join(" ");
+
+  if (!ts || !newText) {
+    return res.json({
+      response_type: "ephemeral",
+      text: "❌ Formato inválido. Usa: `/updatemessage <ts> <nuevo texto>`",
     });
   }
 
@@ -72,5 +79,19 @@ app.post("/updatemessage", async (req, res) => {
     });
 
     res.json({
-      response_type:_
+      response_type: "in_channel",
+      text: `✅ Mensaje actualizado por *${user}*`,
+    });
+  } catch (error) {
+    console.error("Error al actualizar mensaje:", error.data || error.message);
+    res.json({
+      response_type: "ephemeral",
+      text: `❌ Error al actualizar mensaje: ${error.data?.error || error.message}`,
+    });
+  }
+});
 
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Servidor escuchando en puerto ${PORT}`);
+});
