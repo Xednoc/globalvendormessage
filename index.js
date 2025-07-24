@@ -54,20 +54,18 @@ app.post("/globalvendormessage", (req, res) => {
   });
 });
 
-// Endpoint para actualizar un mensaje ya enviado
+// Endpoint para actualizar un mensaje en cualquier canal y timestamp que indiques
 app.post("/updatemessage", async (req, res) => {
-  const channel = req.body.channel_id;  // Canal donde se ejecuta el comando
-  const text = req.body.text;           // Texto que contiene el ts y el nuevo mensaje
-  const user = req.body.user_name;
+  const text = req.body.text; // Texto que contiene channel_id, ts y nuevo mensaje
 
-  // El texto debe ser: "<ts> <nuevo texto>"
-  const [ts, ...messageParts] = text.trim().split(" ");
+  // Separamos el texto para obtener: channel_id, ts, y nuevo texto
+  const [channel, ts, ...messageParts] = text.trim().split(" ");
   const newText = messageParts.join(" ");
 
-  if (!ts || !newText) {
+  if (!channel || !ts || !newText) {
     return res.json({
       response_type: "ephemeral",
-      text: "❌ Formato inválido. Usa: `/updatemessage <ts> <nuevo texto>`",
+      text: "❌ Formato inválido. Usa: `/updatemessage <channel_id> <ts> <nuevo texto>`",
     });
   }
 
@@ -80,7 +78,7 @@ app.post("/updatemessage", async (req, res) => {
 
     res.json({
       response_type: "in_channel",
-      text: `✅ Mensaje actualizado por *${user}*`,
+      text: `✅ Mensaje actualizado correctamente en canal <#${channel}>`,
     });
   } catch (error) {
     console.error("Error al actualizar mensaje:", error.data || error.message);
