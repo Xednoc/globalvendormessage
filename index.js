@@ -3,7 +3,7 @@ import express from "express";
 import bodyParser from "body-parser";
 import fs from "fs";
 import { WebClient } from "@slack/web-api";
-import BoltPkg from "@slack/bolt"; // <- IMPORT DEFAULT
+import BoltPkg from "@slack/bolt"; // default import
 const { App, ExpressReceiver } = BoltPkg;
 
 // =====================================
@@ -31,7 +31,7 @@ if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
 const ADMINS = ["U0839LCBZ4Y"];
 
 // =====================================
-// Lista de canales
+// Canales
 // =====================================
 const canales = [
   { label: "Canal 1", value: "C06M1AYMSTU" },
@@ -71,16 +71,20 @@ function filterLogs({ user, channel, keyword }) {
 // =====================================
 const expressApp = express();
 
-// Para url_verification de Slack
-expressApp.use("/slack/events", bodyParser.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
+// Body parser con rawBody para Slack signature
+expressApp.use(bodyParser.json({
+  verify: (req, res, buf) => { req.rawBody = buf; }
+}));
+expressApp.use(bodyParser.urlencoded({ extended: true }));
 
+// Endpoint para Slack url_verification
 expressApp.post("/slack/events", (req, res, next) => {
-  const body = req.body;
-  if (body && body.type === "url_verification") {
-    console.log("✅ Challenge recibido de Slack:", body.challenge);
-    return res.status(200).send(body.challenge);
+  const { type, challenge } = req.body;
+  if (type === "url_verification") {
+    console.log("✅ Challenge recibido de Slack:", challenge);
+    return res.status(200).send(challenge);
   }
-  next(); // pasa al receiver de Bolt
+  next(); // pasar al receiver de Bolt para otros eventos
 });
 
 // =====================================
@@ -90,7 +94,6 @@ const receiver = new ExpressReceiver({
   signingSecret: SLACK_SIGNING_SECRET,
   endpoints: "/slack/events",
   expressApp,
-  processBeforeResponse: true, // permite validar signature antes de responder
 });
 
 // =====================================
