@@ -10,7 +10,7 @@ const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
 
 // Lista de IDs de usuarios admins
-const ADMINS = ["TU_USER_ID"]; // reemplaza con tu Slack ID
+const ADMINS = ["U0839LCBZ4Y"]; // reemplaza con tu Slack ID
 
 if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
   console.error("ERROR: Faltan variables de entorno SLACK_BOT_TOKEN o SLACK_SIGNING_SECRET");
