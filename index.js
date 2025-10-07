@@ -9,8 +9,12 @@ const PORT = process.env.PORT || 3000;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
 
+// ======== DEBUG para Render: verificar variables de entorno ========
+console.log("DEBUG: SLACK_BOT_TOKEN =", SLACK_BOT_TOKEN ? "✅ OK" : "❌ MISSING");
+console.log("DEBUG: SLACK_SIGNING_SECRET =", SLACK_SIGNING_SECRET ? "✅ OK" : "❌ MISSING");
+
 // Lista de IDs de usuarios admins
-const ADMINS = ["U0839LCBZ4Y"]; // reemplaza con tu Slack ID
+const ADMINS = ["U0839LCBZ4Y"]; // Tu Slack ID como admin
 
 if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
   console.error("ERROR: Faltan variables de entorno SLACK_BOT_TOKEN o SLACK_SIGNING_SECRET");
@@ -192,5 +196,8 @@ async function sendLogsMessage(client, userId, logs, start, end) {
   await client.chat.postEphemeral({ channel: userId, user: userId, blocks });
 }
 
-// ------
-
+// -------------------- Iniciar servidor --------------------
+(async () => {
+  await boltApp.start();
+  expressApp.listen(PORT, () => console.log(`Servidor escuchando en puerto ${PORT}`));
+})();
