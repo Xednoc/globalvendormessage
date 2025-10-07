@@ -1,11 +1,9 @@
 import "dotenv/config";
 import express from "express";
-import bodyParser from "body-parser";
 import fs from "fs";
 import { WebClient } from "@slack/web-api";
-import BoltPkg from "@slack/bolt";  // <- IMPORT DEFAULT
-const { App, ExpressReceiver } = BoltPkg; // <- Extraer desde default
-
+import BoltPkg from "@slack/bolt";  // Import default
+const { App, ExpressReceiver } = BoltPkg;
 
 // =====================================
 // Variables de entorno
@@ -68,34 +66,19 @@ function filterLogs({ user, channel, keyword }) {
 }
 
 // =====================================
-// Express nativo
+// Express + Bolt
 // =====================================
 const expressApp = express();
-expressApp.use(bodyParser.json());
-expressApp.use(bodyParser.urlencoded({ extended: true }));
+expressApp.use(express.json());
+expressApp.use(express.urlencoded({ extended: true }));
 
-// Endpoint para que Slack valide URL (url_verification)
-expressApp.post("/slack/events", (req, res, next) => {
-  const { type, challenge } = req.body;
-  if (type === "url_verification") {
-    console.log("✅ Challenge recibido de Slack:", challenge);
-    return res.status(200).send(challenge); // Slack espera exactamente esto
-  }
-  next(); // pasar al receiver de Bolt para otros eventos
-});
-
-// =====================================
-// ExpressReceiver de Bolt
-// =====================================
+// ExpressReceiver
 const receiver = new ExpressReceiver({
   signingSecret: SLACK_SIGNING_SECRET,
   endpoints: "/slack/events",
-  expressApp, // reutilizamos el express existente
+  expressApp,
 });
 
-// =====================================
-// Bolt App
-// =====================================
 const boltApp = new App({
   token: SLACK_BOT_TOKEN,
   receiver,
@@ -108,6 +91,13 @@ const web = new WebClient(SLACK_BOT_TOKEN);
 // =====================================
 boltApp.command("/globalvendormessage", async ({ ack, body, client }) => {
   await ack();
+
+  console.log("DEBUG /globalvendormessage body:", body);
+
+  if (!body.trigger_id) {
+    console.error("❌ No trigger_id recibido");
+    return;
+  }
 
   try {
     await client.views.open({
@@ -149,6 +139,7 @@ boltApp.command("/globalvendormessage", async ({ ack, body, client }) => {
 // =====================================
 boltApp.view("global_message_modal", async ({ ack, body, view, client }) => {
   await ack();
+
   const message = view.state.values.message_block.message_input.value;
   const selectedChannels = view.state.values.channels_block.channels_select.selected_options.map(c => c.value);
   saveLog(body.user.id, message, selectedChannels);
@@ -161,10 +152,14 @@ boltApp.view("global_message_modal", async ({ ack, body, view, client }) => {
     }
   }
 
-  await client.chat.postMessage({
-    channel: body.user.id,
-    text: `✅ Mensaje enviado a ${selectedChannels.length} canal(es).`,
-  });
+  try {
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: `✅ Mensaje enviado a ${selectedChannels.length} canal(es).`,
+    });
+  } catch (error) {
+    console.error("Error notificando al usuario:", error);
+  }
 });
 
 // =====================================
@@ -193,7 +188,10 @@ boltApp.command("/logs", async ({ ack, body, client }) => {
 async function sendLogsMessage(client, userId, logs, start, end) {
   const pageLogs = logs.slice(start, end).map(l => ({
     type: "section",
-    text: { type: "mrkdwn", text: `*Usuario:* <@${l.user}>\n*Mensaje:* ${l.message}\n*Canales:* ${l.channels.map(c => `<#${c}>`).join(", ")}\n*Hora:* ${l.timestamp}` },
+    text: {
+      type: "mrkdwn",
+      text: `*Usuario:* <@${l.user}>\n*Mensaje:* ${l.message}\n*Canales:* ${l.channels.map(c => `<#${c}>`).join(", ")}\n*Hora:* ${l.timestamp}`,
+    },
   }));
 
   const actions = [];
