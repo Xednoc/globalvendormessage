@@ -1,5 +1,5 @@
 // =====================================
-// index.js - Código maestro completo
+// index.js - Código maestro completo con admin único y comando abierto a todos
 // =====================================
 
 import express from "express";
@@ -39,19 +39,26 @@ const app = new App({
 });
 
 // =====================================
-// Slash command: /globalvendormessage con modal y preview
+// Configuración admin y canales fijos
 // =====================================
-app.command("/globalvendormessage", async ({ ack, body, client }) => {
+const ADMIN_USER_ID = "TU_ID_DE_USUARIO"; // reemplaza con tu ID
+const FIXED_CHANNELS = ["CANAL_ID_1", "CANAL_ID_2", "CANAL_ID_3"]; // reemplaza con tus canales
+
+// =====================================
+// Slash command: /globalvendormessage (todos pueden usar)
+// =====================================
+app.command("/globalvendormessage", async ({ ack, body, client, respond }) => {
   await ack();
 
   try {
+    // Abrir modal para escribir mensaje
     await client.views.open({
       trigger_id: body.trigger_id,
       view: {
         type: "modal",
         callback_id: "global_vendor_message_modal",
         title: { type: "plain_text", text: "Mensaje Global" },
-        submit: { type: "plain_text", text: "Enviar" },
+        submit: { type: "plain_text", text: "Siguiente" },
         close: { type: "plain_text", text: "Cancelar" },
         blocks: [
           {
@@ -69,66 +76,101 @@ app.command("/globalvendormessage", async ({ ack, body, client }) => {
             label: { type: "plain_text", text: "Mensaje" },
           },
           {
-            type: "input",
-            block_id: "channels_input",
-            element: {
-              type: "multi_channels_select",
-              action_id: "channels",
-              placeholder: { type: "plain_text", text: "Selecciona los canales destino" },
+            type: "section",
+            block_id: "channels_display",
+            text: {
+              type: "mrkdwn",
+              text: `📌 *Canales destino (fijos)*:\n${FIXED_CHANNELS.map(c => `<#${c}>`).join(", ")}`,
             },
-            label: { type: "plain_text", text: "Canales" },
           },
         ],
       },
     });
   } catch (error) {
     console.error("Error abriendo modal:", error);
+    await respond({
+      text: `❌ Ocurrió un error: ${error.message}`,
+      response_type: "ephemeral",
+    });
   }
 });
 
 // =====================================
-// Acción al enviar el modal con preview
+// Primer modal: preview de mensaje
 // =====================================
 app.view("global_vendor_message_modal", async ({ ack, body, view, client }) => {
   await ack();
 
   try {
     const message = view.state.values.message_input.message.value;
-    const channels = view.state.values.channels_input.channels.selected_channels;
-    const user = body.user.id;
+
+    // Abrir modal de confirmación con preview
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: "modal",
+        callback_id: "global_vendor_message_confirm_modal",
+        private_metadata: JSON.stringify({ message, user: body.user.id }),
+        title: { type: "plain_text", text: "Confirma el Mensaje" },
+        submit: { type: "plain_text", text: "Enviar" },
+        close: { type: "plain_text", text: "Cancelar" },
+        blocks: [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `📣 *Mensaje a enviar:*\n${message}\n\n*Canales destino:*\n${FIXED_CHANNELS.map(c => `<#${c}>`).join(", ")}`,
+            },
+          },
+        ],
+      },
+    });
+  } catch (error) {
+    console.error("Error mostrando preview:", error);
+  }
+});
+
+// =====================================
+// Modal de confirmación: envío de mensaje
+// =====================================
+app.view("global_vendor_message_confirm_modal", async ({ ack, body, view, client }) => {
+  await ack();
+
+  try {
+    const metadata = JSON.parse(view.private_metadata);
+    const message = metadata.message;
+    const user = metadata.user;
     const timestamp = new Date().toISOString();
 
-    // Log de quién envía el mensaje
+    // Log completo
     console.log("=======================================");
     console.log(`USUARIO: ${user}`);
     console.log(`FECHA: ${timestamp}`);
     console.log(`MENSAJE: ${message}`);
-    console.log(`CANALES: ${channels.join(", ")}`);
+    console.log(`CANALES: ${FIXED_CHANNELS.join(", ")}`);
     console.log("=======================================");
 
-    // Preview efímero al usuario antes de enviar
-    await client.chat.postEphemeral({
-      channel: user,
-      user: user,
-      text: `📣 *Preview del mensaje* que se enviará a ${channels.length} canal(es):\n\n${message}`,
-    });
-
-    // Enviar mensaje a todos los canales seleccionados
-    for (const channel of channels) {
+    // Enviar mensaje a todos los canales fijos
+    for (const channel of FIXED_CHANNELS) {
       await client.chat.postMessage({
         channel: channel,
         text: `📣 ${message}`,
       });
     }
 
-    // Confirmación al usuario
+    // Confirmación efímera al usuario
     await client.chat.postEphemeral({
       channel: user,
       user: user,
-      text: `✅ Mensaje enviado a ${channels.length} canal(es).`,
+      text: `✅ Mensaje enviado a ${FIXED_CHANNELS.length} canal(es).`,
     });
+
+    // Aquí podrías usar tu ID de admin en el futuro para control extra si quisieras
+    if (user === ADMIN_USER_ID) {
+      console.log("Admin ha enviado un mensaje.");
+    }
   } catch (error) {
-    console.error("Error enviando mensajes:", error);
+    console.error("Error enviando mensajes desde confirmación:", error);
   }
 });
 
