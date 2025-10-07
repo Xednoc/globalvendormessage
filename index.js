@@ -5,17 +5,15 @@ const fs = require("fs");
 const { WebClient } = require("@slack/web-api");
 const { App, ExpressReceiver } = require("@slack/bolt");
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN?.trim();
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET?.trim();
 
-// ======== DEBUG Render ========
 console.log("=======================================");
 console.log("DEBUG: Verificando variables de entorno");
 console.log("SLACK_BOT_TOKEN =", SLACK_BOT_TOKEN ? "✅ OK" : "❌ MISSING");
 console.log("SLACK_SIGNING_SECRET =", SLACK_SIGNING_SECRET ? "✅ OK" : "❌ MISSING");
-if (SLACK_SIGNING_SECRET)
-  console.log("Longitud del secret:", SLACK_SIGNING_SECRET.length);
+if (SLACK_SIGNING_SECRET) console.log("Longitud del secret:", SLACK_SIGNING_SECRET.length);
 console.log("=======================================");
 
 if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
@@ -23,36 +21,35 @@ if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
   process.exit(1);
 }
 
+// Lista de admins (Slack IDs)
+const ADMINS = ["U0839LCBZ4Y"];
+
 // =====================================
-// CONFIG EXPRESS & BODY PARSER
+// Express nativo
 // =====================================
 const expressApp = express();
 expressApp.use(bodyParser.json());
 expressApp.use(bodyParser.urlencoded({ extended: true }));
 
-// =====================================
-// HANDLER URL VERIFICATION DE SLACK
-// =====================================
+// Endpoint para que Slack valide URL (url_verification)
 expressApp.post("/slack/events", (req, res, next) => {
   const { type, challenge } = req.body;
   if (type === "url_verification") {
-    // Responde con el challenge solo para verificación de Slack
-    return res.status(200).send(challenge);
+    return res.status(200).send(challenge); // Slack espera exactamente esto
   }
-  next(); // pasa el resto a Bolt
+  next(); // pasar al receiver de Bolt para otros eventos
 });
 
 // =====================================
-// EXPRESS RECEIVER
+// ExpressReceiver de Bolt
 // =====================================
 const receiver = new ExpressReceiver({
   signingSecret: SLACK_SIGNING_SECRET,
-  endpoints: "/slack/events", // misma ruta
-  expressApp, // usamos nuestro express existente
+  endpoints: "/slack/events",
 });
 
 // =====================================
-// BOLT APP
+// Bolt App
 // =====================================
 const boltApp = new App({
   token: SLACK_BOT_TOKEN,
@@ -62,12 +59,7 @@ const boltApp = new App({
 const web = new WebClient(SLACK_BOT_TOKEN);
 
 // =====================================
-// ADMINS
-// =====================================
-const ADMINS = ["U0839LCBZ4Y"]; // Tu Slack ID
-
-// =====================================
-// CANALES
+// Lista de canales
 // =====================================
 const canales = [
   { label: "Canal 1", value: "C06M1AYMSTU" },
@@ -81,15 +73,10 @@ const canales = [
 ];
 
 // =====================================
-// FUNCIONES DE LOG
+// Logging
 // =====================================
 function saveLog(user, message, channels) {
-  const logEntry = {
-    user,
-    message,
-    channels,
-    timestamp: new Date().toISOString(),
-  };
+  const logEntry = { user, message, channels, timestamp: new Date().toISOString() };
   const logFile = "message_log.json";
   let logs = [];
   if (fs.existsSync(logFile)) logs = JSON.parse(fs.readFileSync(logFile));
@@ -108,7 +95,7 @@ function filterLogs({ user, channel, keyword }) {
 }
 
 // =====================================
-// /globalvendormessage
+// Slash Command: /globalvendormessage
 // =====================================
 boltApp.command("/globalvendormessage", async ({ ack, body, client }) => {
   await ack();
@@ -136,10 +123,7 @@ boltApp.command("/globalvendormessage", async ({ ack, body, client }) => {
             element: {
               type: "multi_static_select",
               placeholder: { type: "plain_text", text: "Elige los canales" },
-              options: canales.map(c => ({
-                text: { type: "plain_text", text: c.label },
-                value: c.value,
-              })),
+              options: canales.map(c => ({ text: { type: "plain_text", text: c.label }, value: c.value })),
               action_id: "channels_select",
             },
           },
@@ -152,7 +136,7 @@ boltApp.command("/globalvendormessage", async ({ ack, body, client }) => {
 });
 
 // =====================================
-// MODAL CALLBACK
+// Modal Submission
 // =====================================
 boltApp.view("global_message_modal", async ({ ack, body, view, client }) => {
   await ack();
@@ -175,7 +159,7 @@ boltApp.view("global_message_modal", async ({ ack, body, view, client }) => {
 });
 
 // =====================================
-// /logs
+// Slash Command: /logs
 // =====================================
 boltApp.command("/logs", async ({ ack, body, client }) => {
   await ack();
@@ -191,11 +175,7 @@ boltApp.command("/logs", async ({ ack, body, client }) => {
 
   const logs = filterLogs({});
   if (logs.length === 0) {
-    return client.chat.postEphemeral({
-      channel: userId,
-      user: userId,
-      text: "No hay mensajes en el log.",
-    });
+    return client.chat.postEphemeral({ channel: userId, user: userId, text: "No hay mensajes en el log." });
   }
 
   await sendLogsMessage(client, userId, logs, 0, 20);
@@ -204,17 +184,12 @@ boltApp.command("/logs", async ({ ack, body, client }) => {
 async function sendLogsMessage(client, userId, logs, start, end) {
   const pageLogs = logs.slice(start, end).map(l => ({
     type: "section",
-    text: {
-      type: "mrkdwn",
-      text: `*Usuario:* <@${l.user}>\n*Mensaje:* ${l.message}\n*Canales:* ${l.channels.map(c => `<#${c}>`).join(", ")}\n*Hora:* ${l.timestamp}`,
-    },
+    text: { type: "mrkdwn", text: `*Usuario:* <@${l.user}>\n*Mensaje:* ${l.message}\n*Canales:* ${l.channels.map(c => `<#${c}>`).join(", ")}\n*Hora:* ${l.timestamp}` },
   }));
 
   const actions = [];
-  if (start > 0)
-    actions.push({ type: "button", text: { type: "plain_text", text: "⬅️ Anterior" }, value: `${start}-${end}`, action_id: "prev_logs" });
-  if (end < logs.length)
-    actions.push({ type: "button", text: { type: "plain_text", text: "➡️ Siguiente" }, value: `${start}-${end}`, action_id: "next_logs" });
+  if (start > 0) actions.push({ type: "button", text: { type: "plain_text", text: "⬅️ Anterior" }, value: `${start}-${end}`, action_id: "prev_logs" });
+  if (end < logs.length) actions.push({ type: "button", text: { type: "plain_text", text: "➡️ Siguiente" }, value: `${start}-${end}`, action_id: "next_logs" });
 
   const blocks = [...pageLogs];
   if (actions.length > 0) blocks.push({ type: "actions", elements: actions });
@@ -223,7 +198,7 @@ async function sendLogsMessage(client, userId, logs, start, end) {
 }
 
 // =====================================
-// INICIAR SERVIDOR
+// Inicializar servidor
 // =====================================
 (async () => {
   await boltApp.start(PORT);
