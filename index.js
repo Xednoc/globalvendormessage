@@ -1,9 +1,10 @@
 import "dotenv/config";
 import express from "express";
+import bodyParser from "body-parser";
 import fs from "fs";
 import { WebClient } from "@slack/web-api";
-import BoltPkg from "@slack/bolt";  // Import default
-const { App, ExpressReceiver } = BoltPkg;
+import BoltPkg from "@slack/bolt";  
+const { App, ExpressReceiver } = BoltPkg;  
 
 // =====================================
 // Variables de entorno
@@ -66,19 +67,34 @@ function filterLogs({ user, channel, keyword }) {
 }
 
 // =====================================
-// Express + Bolt
+// Express nativo
 // =====================================
 const expressApp = express();
-expressApp.use(express.json());
-expressApp.use(express.urlencoded({ extended: true }));
+expressApp.use(bodyParser.json());
+expressApp.use(bodyParser.urlencoded({ extended: true }));
 
-// ExpressReceiver
+// Endpoint para que Slack valide URL (url_verification)
+expressApp.post("/slack/events", (req, res, next) => {
+  const { type, challenge } = req.body;
+  if (type === "url_verification") {
+    console.log("✅ Challenge recibido de Slack:", challenge);
+    return res.status(200).send(challenge);
+  }
+  next();
+});
+
+// =====================================
+// ExpressReceiver de Bolt
+// =====================================
 const receiver = new ExpressReceiver({
   signingSecret: SLACK_SIGNING_SECRET,
   endpoints: "/slack/events",
   expressApp,
 });
 
+// =====================================
+// Bolt App
+// =====================================
 const boltApp = new App({
   token: SLACK_BOT_TOKEN,
   receiver,
@@ -90,48 +106,44 @@ const web = new WebClient(SLACK_BOT_TOKEN);
 // Slash Command: /globalvendormessage
 // =====================================
 boltApp.command("/globalvendormessage", async ({ ack, body, client }) => {
-  await ack();
+  await ack(); // ✅ Respondemos inmediatamente para evitar dispatch_failed
 
-  console.log("DEBUG /globalvendormessage body:", body);
-
-  if (!body.trigger_id) {
-    console.error("❌ No trigger_id recibido");
-    return;
-  }
-
-  try {
-    await client.views.open({
-      trigger_id: body.trigger_id,
-      view: {
-        type: "modal",
-        callback_id: "global_message_modal",
-        title: { type: "plain_text", text: "Enviar mensaje" },
-        submit: { type: "plain_text", text: "Enviar" },
-        close: { type: "plain_text", text: "Cancelar" },
-        blocks: [
-          {
-            type: "input",
-            block_id: "message_block",
-            label: { type: "plain_text", text: "Mensaje" },
-            element: { type: "plain_text_input", multiline: true, action_id: "message_input" },
-          },
-          {
-            type: "input",
-            block_id: "channels_block",
-            label: { type: "plain_text", text: "Selecciona canales" },
-            element: {
-              type: "multi_static_select",
-              placeholder: { type: "plain_text", text: "Elige los canales" },
-              options: canales.map(c => ({ text: { type: "plain_text", text: c.label }, value: c.value })),
-              action_id: "channels_select",
+  // Ejecutar el resto de manera asíncrona
+  (async () => {
+    try {
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: {
+          type: "modal",
+          callback_id: "global_message_modal",
+          title: { type: "plain_text", text: "Enviar mensaje" },
+          submit: { type: "plain_text", text: "Enviar" },
+          close: { type: "plain_text", text: "Cancelar" },
+          blocks: [
+            {
+              type: "input",
+              block_id: "message_block",
+              label: { type: "plain_text", text: "Mensaje" },
+              element: { type: "plain_text_input", multiline: true, action_id: "message_input" },
             },
-          },
-        ],
-      },
-    });
-  } catch (error) {
-    console.error("❌ Error abriendo modal:", error);
-  }
+            {
+              type: "input",
+              block_id: "channels_block",
+              label: { type: "plain_text", text: "Selecciona canales" },
+              element: {
+                type: "multi_static_select",
+                placeholder: { type: "plain_text", text: "Elige los canales" },
+                options: canales.map(c => ({ text: { type: "plain_text", text: c.label }, value: c.value })),
+                action_id: "channels_select",
+              },
+            },
+          ],
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error abriendo modal:", error);
+    }
+  })();
 });
 
 // =====================================
@@ -139,7 +151,6 @@ boltApp.command("/globalvendormessage", async ({ ack, body, client }) => {
 // =====================================
 boltApp.view("global_message_modal", async ({ ack, body, view, client }) => {
   await ack();
-
   const message = view.state.values.message_block.message_input.value;
   const selectedChannels = view.state.values.channels_block.channels_select.selected_options.map(c => c.value);
   saveLog(body.user.id, message, selectedChannels);
@@ -152,14 +163,10 @@ boltApp.view("global_message_modal", async ({ ack, body, view, client }) => {
     }
   }
 
-  try {
-    await client.chat.postMessage({
-      channel: body.user.id,
-      text: `✅ Mensaje enviado a ${selectedChannels.length} canal(es).`,
-    });
-  } catch (error) {
-    console.error("Error notificando al usuario:", error);
-  }
+  await client.chat.postMessage({
+    channel: body.user.id,
+    text: `✅ Mensaje enviado a ${selectedChannels.length} canal(es).`,
+  });
 });
 
 // =====================================
@@ -182,16 +189,16 @@ boltApp.command("/logs", async ({ ack, body, client }) => {
     return client.chat.postEphemeral({ channel: userId, user: userId, text: "No hay mensajes en el log." });
   }
 
-  await sendLogsMessage(client, userId, logs, 0, 20);
+  // Ejecutamos asíncronamente para evitar timeout
+  (async () => {
+    await sendLogsMessage(client, userId, logs, 0, 20);
+  })();
 });
 
 async function sendLogsMessage(client, userId, logs, start, end) {
   const pageLogs = logs.slice(start, end).map(l => ({
     type: "section",
-    text: {
-      type: "mrkdwn",
-      text: `*Usuario:* <@${l.user}>\n*Mensaje:* ${l.message}\n*Canales:* ${l.channels.map(c => `<#${c}>`).join(", ")}\n*Hora:* ${l.timestamp}`,
-    },
+    text: { type: "mrkdwn", text: `*Usuario:* <@${l.user}>\n*Mensaje:* ${l.message}\n*Canales:* ${l.channels.map(c => `<#${c}>`).join(", ")}\n*Hora:* ${l.timestamp}` },
   }));
 
   const actions = [];
