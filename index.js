@@ -1,52 +1,33 @@
 require("dotenv").config();
-const express = require("express");
-const bodyParser = require("body-parser");
 const fs = require("fs");
-const { WebClient } = require("@slack/web-api");
 const { App, ExpressReceiver } = require("@slack/bolt");
+const { WebClient } = require("@slack/web-api");
 
+// =======================
+// CONFIG
+// =======================
 const PORT = process.env.PORT || 3000;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN?.trim();
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET?.trim();
 
-// ======== DEBUG Render ========
 console.log("=======================================");
 console.log("DEBUG: Verificando variables de entorno");
 console.log("SLACK_BOT_TOKEN =", SLACK_BOT_TOKEN ? "✅ OK" : "❌ MISSING");
 console.log("SLACK_SIGNING_SECRET =", SLACK_SIGNING_SECRET ? "✅ OK" : "❌ MISSING");
-if (SLACK_SIGNING_SECRET)
-  console.log("Longitud del secret:", SLACK_SIGNING_SECRET.length);
+if (SLACK_SIGNING_SECRET) console.log("Longitud del secret:", SLACK_SIGNING_SECRET.length);
 console.log("=======================================");
-
-const ADMINS = ["U0839LCBZ4Y"]; // Tu Slack ID de administrador
 
 if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
   console.error("🚨 ERROR: Faltan variables de entorno SLACK_BOT_TOKEN o SLACK_SIGNING_SECRET");
-  console.error("Verifica en Render: Dashboard → Environment → SLACK_SIGNING_SECRET");
   process.exit(1);
 }
 
-// =====================================
-// EXPRESS APP
-// =====================================
-const expressApp = express();
-expressApp.use(bodyParser.urlencoded({ extended: true }));
-expressApp.use(bodyParser.json());
-
-// Endpoint para que Slack valide URL (challenge)
-expressApp.post("/slack/events", (req, res, next) => {
-  if (req.body.type === "url_verification") {
-    return res.send(req.body.challenge); // Respuesta esperada por Slack
-  }
-  next(); // Pasa al ExpressReceiver si no es url_verification
-});
-
-// =====================================
-// EXPRESS RECEIVER Y BOLT APP
-// =====================================
+// =======================
+// SETUP RECEIVER & APP
+// =======================
 const receiver = new ExpressReceiver({
   signingSecret: SLACK_SIGNING_SECRET,
-  endpoints: "/slack/events",
+  endpoints: "/slack/events", // Bolt manejará el challenge automáticamente
 });
 
 const boltApp = new App({
@@ -56,9 +37,11 @@ const boltApp = new App({
 
 const web = new WebClient(SLACK_BOT_TOKEN);
 
-// =====================================
-// LISTA DE CANALES
-// =====================================
+// =======================
+// ADMINS y CANALES
+// =======================
+const ADMINS = ["U0839LCBZ4Y"]; // Tu Slack ID
+
 const canales = [
   { label: "Canal 1", value: "C06M1AYMSTU" },
   { label: "Canal 2", value: "C06M1B1JLAW" },
@@ -70,9 +53,9 @@ const canales = [
   { label: "Canal 8", value: "C06MQ62H0KS" },
 ];
 
-// =====================================
-// LOGS
-// =====================================
+// =======================
+// LOG FUNCTIONS
+// =======================
 function saveLog(user, message, channels) {
   const logEntry = {
     user,
@@ -97,12 +80,11 @@ function filterLogs({ user, channel, keyword }) {
   return logs;
 }
 
-// =====================================
-// COMANDO /globalvendormessage
-// =====================================
+// =======================
+// /globalvendormessage
+// =======================
 boltApp.command("/globalvendormessage", async ({ ack, body, client }) => {
   await ack();
-
   try {
     await client.views.open({
       trigger_id: body.trigger_id,
@@ -141,9 +123,9 @@ boltApp.command("/globalvendormessage", async ({ ack, body, client }) => {
   }
 });
 
-// =====================================
-// MODAL VIEW
-// =====================================
+// =======================
+// MODAL SUBMIT
+// =======================
 boltApp.view("global_message_modal", async ({ ack, body, view, client }) => {
   await ack();
   const message = view.state.values.message_block.message_input.value;
@@ -164,9 +146,9 @@ boltApp.view("global_message_modal", async ({ ack, body, view, client }) => {
   });
 });
 
-// =====================================
-// COMANDO /logs
-// =====================================
+// =======================
+// /logs
+// =======================
 boltApp.command("/logs", async ({ ack, body, client }) => {
   await ack();
   const userId = body.user_id;
@@ -212,9 +194,9 @@ async function sendLogsMessage(client, userId, logs, start, end) {
   await client.chat.postEphemeral({ channel: userId, user: userId, blocks });
 }
 
-// =====================================
-// INICIAR SERVIDOR
-// =====================================
+// =======================
+// START SERVER
+// =======================
 (async () => {
   await boltApp.start(PORT);
   console.log(`🚀 Servidor escuchando en puerto ${PORT}`);
