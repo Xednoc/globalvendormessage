@@ -1,109 +1,113 @@
+// index.cjs
 const { App } = require("@slack/bolt");
 
-// Inicializa la app
+// Configuración del bot
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   signingSecret: process.env.SLACK_SIGNING_SECRET,
-  port: process.env.PORT || 10000,
+  socketMode: true,
+  appToken: process.env.SLACK_APP_TOKEN, // Asegúrate de tenerlo si usas Socket Mode
 });
 
-// Función para obtener los canales donde el bot es miembro
-async function getBotChannels(client) {
-  const result = await client.conversations.list({
-    types: "public_channel,private_channel",
-    limit: 1000,
-  });
-  return result.channels.filter(c => c.is_member);
-}
-
-// Función para abrir el modal
-async function openModal(trigger_id, client) {
-  const canalesBot = await getBotChannels(client);
-
-  if (canalesBot.length === 0) {
-    console.log("El bot no está en ningún canal.");
-    return;
-  }
-
-  const opcionesCanales = canalesBot.map(c => ({
-    text: { type: "plain_text", text: c.name },
-    value: c.id
-  }));
-
-  await client.views.open({
-    trigger_id: trigger_id,
-    view: {
-      type: "modal",
-      callback_id: "global_message_modal",
-      title: { type: "plain_text", text: "Global Vendor Message" },
-      submit: { type: "plain_text", text: "Send" },
-      close: { type: "plain_text", text: "Cancel" },
-      blocks: [
-        {
-          type: "input",
-          block_id: "message_block",
-          label: { type: "plain_text", text: "Message" },
-          element: {
-            type: "plain_text_input",
-            action_id: "message_input",
-            multiline: true
-          }
-        },
-        {
-          type: "input",
-          block_id: "channels_block",
-          label: { type: "plain_text", text: "Select channels" },
-          element: {
-            type: "multi_static_select",
-            action_id: "channels_select",
-            placeholder: { type: "plain_text", text: "Select channels" },
-            options: opcionesCanales
-          }
-        }
-      ]
-    }
-  });
-}
-
-// Evento slash command
-app.command("/globalvendormessage", async ({ ack, body, client }) => {
-  await ack();
+// Función para obtener todos los canales donde el bot está invitado
+async function getChannels() {
   try {
-    await openModal(body.trigger_id, client);
+    const result = await app.client.conversations.list({
+      types: "public_channel,private_channel",
+      limit: 1000,
+    });
+
+    // Filtrar solo canales donde el bot es miembro
+    const botChannels = result.channels.filter((c) => c.is_member);
+    return botChannels;
   } catch (error) {
-    console.error("Error abriendo modal:", error);
+    console.error("ERROR obteniendo canales:", error);
+    return [];
+  }
+}
+
+// Comando slash /globalvendormessage
+app.command("/globalvendormessage", async ({ command, ack, client }) => {
+  await ack();
+
+  const channels = await getChannels();
+
+  // Abrir modal
+  try {
+    await client.views.open({
+      trigger_id: command.trigger_id,
+      view: {
+        type: "modal",
+        callback_id: "global_message_modal",
+        title: {
+          type: "plain_text",
+          text: "Global Vendor Message",
+        },
+        blocks: [
+          {
+            type: "input",
+            block_id: "message_block",
+            element: {
+              type: "plain_text_input",
+              multiline: true,
+              action_id: "message_input",
+            },
+            label: {
+              type: "plain_text",
+              text: "Mensaje",
+            },
+          },
+          {
+            type: "input",
+            block_id: "channel_block",
+            element: {
+              type: "static_select",
+              action_id: "channel_select",
+              options: channels.map((c) => ({
+                text: {
+                  type: "plain_text",
+                  text: `#${c.name}`,
+                },
+                value: c.id,
+              })),
+            },
+            label: {
+              type: "plain_text",
+              text: "Selecciona canal",
+            },
+          },
+        ],
+        submit: {
+          type: "plain_text",
+          text: "Enviar",
+        },
+      },
+    });
+  } catch (error) {
+    console.error("ERROR abriendo modal:", error);
   }
 });
 
-// Manejo del submit del modal
-app.view("global_message_modal", async ({ ack, body, view, client }) => {
+// Listener para el submit del modal
+app.view("global_message_modal", async ({ ack, view, client, body }) => {
   await ack();
 
   const message = view.state.values.message_block.message_input.value;
-  const selectedChannels = view.state.values.channels_block.channels_select.selected_options.map(o => o.value);
+  const channelId = view.state.values.channel_block.channel_select.selected_option.value;
 
-  // Enviar mensaje a todos los canales seleccionados
-  for (const channel of selectedChannels) {
-    try {
-      await client.chat.postMessage({
-        channel: channel,
-        text: message
-      });
-    } catch (error) {
-      console.error(`Error enviando mensaje a ${channel}:`, error);
-    }
+  try {
+    await client.chat.postMessage({
+      channel: channelId,
+      text: message,
+    });
+    console.log(`Mensaje enviado a canal ${channelId}`);
+  } catch (error) {
+    console.error("ERROR enviando mensaje:", error);
   }
-
-  // Guardar log
-  console.log({
-    user: body.user.id,
-    message: message,
-    channels: selectedChannels
-  });
 });
 
-// Arrancar la app
+// Iniciar app
 (async () => {
   await app.start();
-  console.log("⚡ Global Vendor Message bot corriendo!");
+  console.log("⚡ Bot corriendo");
 })();
