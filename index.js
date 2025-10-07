@@ -89,6 +89,7 @@ app.command("/globalvendormessage", async ({ command, ack, client }) => {
     // Obtener canales actualizados antes de abrir modal
     await fetchBotChannels();
 
+    // Si no hay canales disponibles
     if (canalesDisponibles.length === 0) {
       await client.chat.postEphemeral({
         channel: command.channel_id,
@@ -101,6 +102,7 @@ app.command("/globalvendormessage", async ({ command, ack, client }) => {
     // Modal con selección de canales y mensaje
     const modal = {
       type: "modal",
+      callback_id: "globalvendormessage_modal", // <-- Esto es clave
       title: { type: "plain_text", text: "Mensaje Global" },
       blocks: [
         {
