@@ -4,7 +4,11 @@
   "description": "Bot de Slack para enviar mensajes a múltiples canales y logs interactivos",
   "main": "index.js",
   "scripts": {
+    "preinstall": "npm cache clean --force",
     "start": "node index.js"
+  },
+  "engines": {
+    "node": "22.x"
   },
   "keywords": ["slack", "bot", "express", "bolt"],
   "author": "",
