@@ -1,6 +1,4 @@
 require("dotenv").config();
-const express = require("express");
-const bodyParser = require("body-parser");
 const fs = require("fs");
 const { WebClient } = require("@slack/web-api");
 const { App, ExpressReceiver } = require("@slack/bolt");
@@ -26,13 +24,12 @@ if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
   process.exit(1);
 }
 
-const expressApp = express();
-expressApp.use(bodyParser.urlencoded({ extended: true }));
-expressApp.use(bodyParser.json());
-
+// =====================================
+// ExpressReceiver (gestiona todo Slack)
+// =====================================
 const receiver = new ExpressReceiver({
   signingSecret: SLACK_SIGNING_SECRET,
-  endpoints: "/slack/events",
+  endpoints: "/slack/events", // Slack enviará aquí eventos y comandos
 });
 
 const boltApp = new App({
@@ -87,11 +84,10 @@ function filterLogs({ user, channel, keyword }) {
 }
 
 // =====================================
-// COMANDO /globalvendormessage
+// /globalvendormessage
 // =====================================
 boltApp.command("/globalvendormessage", async ({ ack, body, client }) => {
   await ack();
-
   try {
     await client.views.open({
       trigger_id: body.trigger_id,
@@ -202,7 +198,7 @@ async function sendLogsMessage(client, userId, logs, start, end) {
 }
 
 // =====================================
-// SERVIDOR
+// INICIAR SERVIDOR
 // =====================================
 (async () => {
   await boltApp.start(PORT);
