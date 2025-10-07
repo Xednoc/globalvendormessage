@@ -3,7 +3,9 @@ import express from "express";
 import bodyParser from "body-parser";
 import fs from "fs";
 import { WebClient } from "@slack/web-api";
-import { App, ExpressReceiver } from "@slack/bolt";
+import BoltPkg from "@slack/bolt";  // <- IMPORT DEFAULT
+const { App, ExpressReceiver } = BoltPkg; // <- Extraer desde default
+
 
 // =====================================
 // Variables de entorno
