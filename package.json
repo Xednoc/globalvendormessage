@@ -1,18 +1,21 @@
 {
   "name": "nodejs",
   "version": "1.0.0",
-  "description": "",
+  "description": "Slack bot con Express y Bolt para mensajes globales e interactividad",
   "main": "index.js",
   "scripts": {
+    "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": ["slack", "bot", "express", "bolt"],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@slack/bolt": "^3.17.0",
     "@slack/web-api": "^7.9.3",
     "@types/node": "^22.13.11",
     "body-parser": "^2.2.0",
+    "dotenv": "^16.4.5",
     "express": "^5.1.0"
   }
 }
