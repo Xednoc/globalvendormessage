@@ -30,7 +30,7 @@ if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
 // =====================================
 const receiver = new ExpressReceiver({
   signingSecret: SLACK_SIGNING_SECRET,
-  endpoints: "/slack/events", // coincidente con el Request URL del slash command
+  endpoints: "/slack/events",
 });
 
 const app = new App({
@@ -39,38 +39,97 @@ const app = new App({
 });
 
 // =====================================
-// Slash command: /globalvendormessage
+// Slash command: /globalvendormessage con modal y preview
 // =====================================
-app.command("/globalvendormessage", async ({ command, ack, respond }) => {
+app.command("/globalvendormessage", async ({ ack, body, client }) => {
+  await ack();
+
   try {
-    await ack();
-    console.log("DEBUG: Comando recibido:", command);
-
-    const message = command.text || "Mensaje global a vendors";
-    await respond({
-      text: `📣 Enviando mensaje a todos los vendors: ${message}`,
-      response_type: "ephemeral",
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: "modal",
+        callback_id: "global_vendor_message_modal",
+        title: { type: "plain_text", text: "Mensaje Global" },
+        submit: { type: "plain_text", text: "Enviar" },
+        close: { type: "plain_text", text: "Cancelar" },
+        blocks: [
+          {
+            type: "input",
+            block_id: "message_input",
+            element: {
+              type: "plain_text_input",
+              action_id: "message",
+              multiline: true,
+              placeholder: {
+                type: "plain_text",
+                text: "Escribe el mensaje que quieres enviar...",
+              },
+            },
+            label: { type: "plain_text", text: "Mensaje" },
+          },
+          {
+            type: "input",
+            block_id: "channels_input",
+            element: {
+              type: "multi_channels_select",
+              action_id: "channels",
+              placeholder: { type: "plain_text", text: "Selecciona los canales destino" },
+            },
+            label: { type: "plain_text", text: "Canales" },
+          },
+        ],
+      },
     });
-
-    // Aquí puedes agregar la lógica para enviar mensajes a canales específicos
-    // o hacer un broadcast según lo que necesites.
-
   } catch (error) {
-    console.error("ERROR manejando comando /globalvendormessage:", error);
-    await respond({
-      text: `❌ Ocurrió un error: ${error.message}`,
-      response_type: "ephemeral",
-    });
+    console.error("Error abriendo modal:", error);
   }
 });
 
 // =====================================
-// Middleware para verificar requests de Slack
+// Acción al enviar el modal con preview
 // =====================================
-receiver.app.use(express.json());
-receiver.app.use((req, res, next) => {
-  // Bolt ya maneja verification del signature
-  next();
+app.view("global_vendor_message_modal", async ({ ack, body, view, client }) => {
+  await ack();
+
+  try {
+    const message = view.state.values.message_input.message.value;
+    const channels = view.state.values.channels_input.channels.selected_channels;
+    const user = body.user.id;
+    const timestamp = new Date().toISOString();
+
+    // Log de quién envía el mensaje
+    console.log("=======================================");
+    console.log(`USUARIO: ${user}`);
+    console.log(`FECHA: ${timestamp}`);
+    console.log(`MENSAJE: ${message}`);
+    console.log(`CANALES: ${channels.join(", ")}`);
+    console.log("=======================================");
+
+    // Preview efímero al usuario antes de enviar
+    await client.chat.postEphemeral({
+      channel: user,
+      user: user,
+      text: `📣 *Preview del mensaje* que se enviará a ${channels.length} canal(es):\n\n${message}`,
+    });
+
+    // Enviar mensaje a todos los canales seleccionados
+    for (const channel of channels) {
+      await client.chat.postMessage({
+        channel: channel,
+        text: `📣 ${message}`,
+      });
+    }
+
+    // Confirmación al usuario
+    await client.chat.postEphemeral({
+      channel: user,
+      user: user,
+      text: `✅ Mensaje enviado a ${channels.length} canal(es).`,
+    });
+  } catch (error) {
+    console.error("Error enviando mensajes:", error);
+  }
 });
 
 // =====================================
