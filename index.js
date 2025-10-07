@@ -3,7 +3,7 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const fs = require("fs");
 const { WebClient } = require("@slack/web-api");
-const { App } = require("@slack/bolt");
+const { App, ExpressReceiver } = require("@slack/bolt");
 
 const PORT = process.env.PORT || 3000;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
@@ -17,18 +17,23 @@ if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
   process.exit(1);
 }
 
-// Inicializamos Express y Bolt
-const app = express();
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(bodyParser.json());
+// Inicializamos Express y bodyParser
+const expressApp = express();
+expressApp.use(bodyParser.urlencoded({ extended: true }));
+expressApp.use(bodyParser.json());
 
-const web = new WebClient(SLACK_BOT_TOKEN);
+// Configuramos Bolt con ExpressReceiver para compatibilidad con Render
+const receiver = new ExpressReceiver({
+  signingSecret: SLACK_SIGNING_SECRET,
+  endpoints: "/slack/events",
+});
 
 const boltApp = new App({
   token: SLACK_BOT_TOKEN,
-  signingSecret: SLACK_SIGNING_SECRET,
-  receiver: { app, dispatch: (payload) => Promise.resolve(payload) },
+  receiver,
 });
+
+const web = new WebClient(SLACK_BOT_TOKEN);
 
 // Lista de canales disponibles
 const canales = [
@@ -139,7 +144,7 @@ boltApp.view("global_message_modal", async ({ ack, body, view, client }) => {
   });
 });
 
-// -------------------- Slash Command para ver logs interactivos --------------------
+// -------------------- Slash Command para ver logs --------------------
 boltApp.command("/logs", async ({ ack, body, client }) => {
   await ack();
 
@@ -162,7 +167,7 @@ boltApp.command("/logs", async ({ ack, body, client }) => {
   }
 
   const startIndex = 0;
-  const endIndex = 20; // <-- Cambiado de 5 a 20
+  const endIndex = 20;
   await sendLogsMessage(client, userId, logs, startIndex, endIndex);
 });
 
@@ -187,56 +192,5 @@ async function sendLogsMessage(client, userId, logs, start, end) {
   await client.chat.postEphemeral({ channel: userId, user: userId, blocks });
 }
 
-// -------------------- Manejo de botones de paginación --------------------
-boltApp.action(/prev_logs|next_logs/, async ({ ack, body, action, client }) => {
-  await ack();
+// ------
 
-  const userId = body.user.id;
-  const [start, end] = action.value.split("-").map(Number);
-  const logs = filterLogs({});
-  let newStart, newEnd;
-
-  if (action.action_id === "prev_logs") {
-    newStart = Math.max(0, start - 20); // <-- Cambiado de 5 a 20
-    newEnd = start;
-  } else {
-    newStart = end;
-    newEnd = Math.min(logs.length, end + 20); // <-- Cambiado de 5 a 20
-  }
-
-  await sendLogsMessage(client, userId, logs, newStart, newEnd);
-});
-
-// -------------------- Endpoint para actualizar mensaje --------------------
-app.post("/updatemessage", async (req, res) => {
-  const text = req.body.text;
-  const [channel, ts, ...messageParts] = text.trim().split(" ");
-  const newText = messageParts.join(" ");
-
-  if (!channel || !ts || !newText) {
-    return res.json({
-      response_type: "ephemeral",
-      text: "❌ Formato inválido. Usa: `/updatemessage <channel_id> <ts> <nuevo texto>`",
-    });
-  }
-
-  try {
-    await web.chat.update({ channel, ts, text: newText });
-    res.json({
-      response_type: "in_channel",
-      text: `✅ Mensaje actualizado correctamente en canal <#${channel}>`,
-    });
-  } catch (error) {
-    console.error("Error al actualizar mensaje:", error.data || error.message);
-    res.json({
-      response_type: "ephemeral",
-      text: `❌ Error al actualizar mensaje: ${error.data?.error || error.message}`,
-    });
-  }
-});
-
-// -------------------- Iniciar servidor --------------------
-(async () => {
-  await boltApp.start();
-  app.listen(PORT, () => console.log(`Servidor escuchando en puerto ${PORT}`));
-})();
