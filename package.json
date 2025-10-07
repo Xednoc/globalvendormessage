@@ -2,11 +2,11 @@
   "name": "globalvendormessage",
   "version": "1.0.0",
   "description": "Bot de Slack para enviar mensajes a múltiples canales y logs interactivos",
-  "main": "index.js",
-  "type": "module",
+  "main": "index.cjs",
+  "type": "commonjs",
   "scripts": {
     "preinstall": "npm cache clean --force",
-    "start": "node index.js"
+    "start": "node index.cjs"
   },
   "engines": {
     "node": "22.x"
