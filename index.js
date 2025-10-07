@@ -1,5 +1,5 @@
 // =====================================
-// index.js - Código maestro completo
+// index.js - Código maestro estable
 // =====================================
 
 import express from "express";
@@ -12,9 +12,6 @@ const { App, ExpressReceiver } = pkg;
 const PORT = process.env.PORT || 10000;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN?.trim();
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET?.trim();
-
-// ID del admin (tú)
-const ADMIN_ID = "TU_USER_ID_AQUI";
 
 console.log("=======================================");
 console.log("DEBUG: Verificando variables de entorno");
@@ -42,32 +39,21 @@ const app = new App({
 });
 
 // =====================================
-// Lista de canales donde está invitado el bot
+// Lista de canales disponibles (fijos)
 // =====================================
-let canalesDisponibles = [];
-
-async function fetchBotChannels() {
-  try {
-    const result = await app.client.conversations.list({
-      token: SLACK_BOT_TOKEN,
-      types: "public_channel,private_channel",
-    });
-    canalesDisponibles = result.channels
-      .filter(c => c.is_member)
-      .map(c => ({
-        label: c.name,
-        value: c.id,
-      }));
-
-    console.log("DEBUG: Canales disponibles para el bot:", canalesDisponibles);
-  } catch (err) {
-    console.error("ERROR obteniendo canales del bot:", err);
-    canalesDisponibles = [];
-  }
-}
+const canales = [
+  { label: "Canal 1", value: "C06M1AYMSTU" },
+  { label: "Canal 2", value: "C06M1B1JLAW" },
+  { label: "Canal 3", value: "C06LLQQDT0F" },
+  { label: "Canal 4", value: "C06LUNGPVGE" },
+  { label: "Canal 5", value: "C06MQ5R42QY" },
+  { label: "Canal 6", value: "C06LYE9NZ53" },
+  { label: "Canal 7", value: "C06M1B41JJW" },
+  { label: "Canal 8", value: "C06MQ62H0KS" },
+];
 
 // =====================================
-// Función para guardar log de broadcasts
+// Función para guardar log
 // =====================================
 function saveLog(user, message, channels) {
   const logEntry = {
@@ -76,112 +62,88 @@ function saveLog(user, message, channels) {
     channels,
     timestamp: new Date().toISOString(),
   };
-  console.log("LOG BROADCAST:", logEntry);
+  console.log("LOG Broadcast:", logEntry);
 }
 
 // =====================================
 // Slash command: /globalvendormessage
 // =====================================
-app.command("/globalvendormessage", async ({ command, ack, client }) => {
-  await ack();
-
+app.command("/globalvendormessage", async ({ command, ack, client, respond }) => {
   try {
-    // Obtener canales actualizados antes de abrir modal
-    await fetchBotChannels();
+    await ack();
+    console.log("DEBUG: Comando recibido:", command);
 
-    // Si no hay canales disponibles
-    if (canalesDisponibles.length === 0) {
-      await client.chat.postEphemeral({
-        channel: command.channel_id,
-        user: command.user_id,
-        text: "❌ No hay canales disponibles donde el bot esté invitado.",
-      });
-      return;
-    }
-
-    // Modal con selección de canales y mensaje
     const modal = {
       type: "modal",
-      callback_id: "globalvendormessage_modal", // <-- Esto es clave
-      title: { type: "plain_text", text: "Mensaje Global" },
+      callback_id: "broadcast_modal",
+      title: {
+        type: "plain_text",
+        text: "Global Vendor Message",
+      },
+      submit: {
+        type: "plain_text",
+        text: "Send",
+      },
+      close: {
+        type: "plain_text",
+        text: "Cancel",
+      },
       blocks: [
         {
           type: "input",
-          block_id: "canales_block",
+          block_id: "message_block",
           element: {
-            type: "multi_static_select",
-            action_id: "canales_action",
-            placeholder: { type: "plain_text", text: "Selecciona canales" },
-            options: canalesDisponibles.map(c => ({
-              text: { type: "plain_text", text: c.label },
-              value: c.value,
-            })),
+            type: "plain_text_input",
+            multiline: true,
+            action_id: "message_input",
           },
-          label: { type: "plain_text", text: "Canales destino" },
+          label: {
+            type: "plain_text",
+            text: "Mensaje",
+          },
         },
         {
           type: "input",
-          block_id: "mensaje_block",
+          block_id: "channels_block",
           element: {
-            type: "plain_text_input",
-            action_id: "mensaje_action",
-            multiline: true,
+            type: "multi_static_select",
+            placeholder: {
+              type: "plain_text",
+              text: "Selecciona los canales",
+            },
+            options: canales.map((c) => ({
+              text: { type: "plain_text", text: c.label },
+              value: c.value,
+            })),
+            action_id: "channels_select",
           },
-          label: { type: "plain_text", text: "Mensaje" },
+          label: {
+            type: "plain_text",
+            text: "Canales destino",
+          },
         },
       ],
-      submit: { type: "plain_text", text: "Enviar" },
     };
 
     await client.views.open({
       trigger_id: command.trigger_id,
       view: modal,
     });
-  } catch (err) {
-    console.error("ERROR abriendo modal:", err);
-  }
-});
-
-// =====================================
-// Manejo de submit del modal
-// =====================================
-app.view("globalvendormessage_modal", async ({ ack, body, view, client }) => {
-  await ack();
-
-  try {
-    const user = body.user.id;
-    const message = view.state.values.mensaje_block.mensaje_action.value;
-    const selectedChannels = view.state.values.canales_block.canales_action.selected_options.map(
-      o => o.value
-    );
-
-    // Enviar mensaje a todos los canales seleccionados
-    for (const channel of selectedChannels) {
-      await client.chat.postMessage({
-        channel,
-        text: message,
-      });
-    }
-
-    // Guardar log
-    saveLog(user, message, selectedChannels);
-
-    // Notificación de envío
-    await client.chat.postEphemeral({
-      channel: body.user.id,
-      user: body.user.id,
-      text: `✅ Mensaje enviado a ${selectedChannels.length} canal(es).`,
+  } catch (error) {
+    console.error("ERROR abriendo modal:", error);
+    await respond({
+      text: `❌ Ocurrió un error: ${error.message}`,
+      response_type: "ephemeral",
     });
-  } catch (err) {
-    console.error("ERROR enviando broadcast:", err);
   }
 });
 
 // =====================================
-// Middleware
+// Middleware para verificar requests de Slack
 // =====================================
 receiver.app.use(express.json());
 receiver.app.use((req, res, next) => {
+  // Bolt ya maneja verification del signature
   next();
 });
 
