@@ -3,8 +3,8 @@ import express from "express";
 import bodyParser from "body-parser";
 import fs from "fs";
 import { WebClient } from "@slack/web-api";
-import BoltPkg from "@slack/bolt";  // <- IMPORT DEFAULT
-const { App, ExpressReceiver } = BoltPkg; // <- Extraer desde default
+import BoltPkg from "@slack/bolt"; // Import default
+const { App, ExpressReceiver } = BoltPkg; // Extraer desde default
 
 // =====================================
 // Variables de entorno
@@ -73,12 +73,12 @@ const expressApp = express();
 expressApp.use(bodyParser.json());
 expressApp.use(bodyParser.urlencoded({ extended: true }));
 
-// Endpoint para que Slack valide URL (url_verification)
+// Endpoint para URL verification de Slack
 expressApp.post("/slack/events", (req, res, next) => {
   const { type, challenge } = req.body;
   if (type === "url_verification") {
     console.log("✅ Challenge recibido de Slack:", challenge);
-    return res.status(200).send(challenge);
+    return res.status(200).send(challenge); // Slack espera exactamente esto
   }
   next(); // pasar al receiver de Bolt para otros eventos
 });
@@ -89,7 +89,7 @@ expressApp.post("/slack/events", (req, res, next) => {
 const receiver = new ExpressReceiver({
   signingSecret: SLACK_SIGNING_SECRET,
   endpoints: "/slack/events",
-  expressApp, // reutilizamos el express existente
+  expressApp,
 });
 
 // =====================================
@@ -106,8 +106,7 @@ const web = new WebClient(SLACK_BOT_TOKEN);
 // Slash Command: /globalvendormessage
 // =====================================
 boltApp.command("/globalvendormessage", async ({ ack, body, client }) => {
-  await ack(); // ack inmediato evita "dispatch_failed"
-
+  await ack();
   try {
     await client.views.open({
       trigger_id: body.trigger_id,
@@ -154,6 +153,8 @@ boltApp.view("global_message_modal", async ({ ack, body, view, client }) => {
 
   for (const channel of selectedChannels) {
     try {
+      // Auto-join si el bot no está en el canal
+      await web.conversations.join({ channel }).catch(() => {});
       await web.chat.postMessage({ channel, text: message });
     } catch (error) {
       console.error(`Error al enviar a ${channel}:`, error.data || error.message);
@@ -192,12 +193,27 @@ boltApp.command("/logs", async ({ ack, body, client }) => {
 async function sendLogsMessage(client, userId, logs, start, end) {
   const pageLogs = logs.slice(start, end).map(l => ({
     type: "section",
-    text: { type: "mrkdwn", text: `*Usuario:* <@${l.user}>\n*Mensaje:* ${l.message}\n*Canales:* ${l.channels.map(c => `<#${c}>`).join(", ")}\n*Hora:* ${l.timestamp}` },
+    text: {
+      type: "mrkdwn",
+      text: `*Usuario:* <@${l.user}>\n*Mensaje:* ${l.message}\n*Canales:* ${l.channels.map(c => `<#${c}>`).join(", ")}\n*Hora:* ${l.timestamp}`,
+    },
   }));
 
   const actions = [];
-  if (start > 0) actions.push({ type: "button", text: { type: "plain_text", text: "⬅️ Anterior" }, value: `${start}-${end}`, action_id: "prev_logs" });
-  if (end < logs.length) actions.push({ type: "button", text: { type: "plain_text", text: "➡️ Siguiente" }, value: `${start}-${end}`, action_id: "next_logs" });
+  if (start > 0)
+    actions.push({
+      type: "button",
+      text: { type: "plain_text", text: "⬅️ Anterior" },
+      value: `${start}-${end}`,
+      action_id: "prev_logs",
+    });
+  if (end < logs.length)
+    actions.push({
+      type: "button",
+      text: { type: "plain_text", text: "➡️ Siguiente" },
+      value: `${start}-${end}`,
+      action_id: "next_logs",
+    });
 
   const blocks = [...pageLogs];
   if (actions.length > 0) blocks.push({ type: "actions", elements: actions });
