@@ -1,8 +1,9 @@
 import "dotenv/config";
 import express from "express";
+import bodyParser from "body-parser";
 import fs from "fs";
 import { WebClient } from "@slack/web-api";
-import BoltPkg from "@slack/bolt"; // Import default
+import BoltPkg from "@slack/bolt"; // <- IMPORT DEFAULT
 const { App, ExpressReceiver } = BoltPkg;
 
 // =====================================
@@ -68,17 +69,18 @@ function filterLogs({ user, channel, keyword }) {
 // =====================================
 // Express nativo
 // =====================================
-const expressApp = express(); 
-// ❌ NO usar bodyParser aquí, ExpressReceiver lo maneja para firmar requests correctamente
+const expressApp = express();
 
-// Endpoint para validar challenge
-expressApp.post("/slack/events", express.json({ type: "*/*" }), (req, res, next) => {
-  const { type, challenge } = req.body;
-  if (type === "url_verification") {
-    console.log("✅ Challenge recibido de Slack:", challenge);
-    return res.status(200).send(challenge);
+// Para url_verification de Slack
+expressApp.use("/slack/events", bodyParser.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
+
+expressApp.post("/slack/events", (req, res, next) => {
+  const body = req.body;
+  if (body && body.type === "url_verification") {
+    console.log("✅ Challenge recibido de Slack:", body.challenge);
+    return res.status(200).send(body.challenge);
   }
-  next();
+  next(); // pasa al receiver de Bolt
 });
 
 // =====================================
@@ -87,7 +89,8 @@ expressApp.post("/slack/events", express.json({ type: "*/*" }), (req, res, next)
 const receiver = new ExpressReceiver({
   signingSecret: SLACK_SIGNING_SECRET,
   endpoints: "/slack/events",
-  expressApp, // reutilizamos expressApp
+  expressApp,
+  processBeforeResponse: true, // permite validar signature antes de responder
 });
 
 // =====================================
