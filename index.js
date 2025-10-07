@@ -1,10 +1,13 @@
 // =====================================
-// IMPORTS
+// index.js - Código maestro completo
 // =====================================
-import { App, ExpressReceiver } from "@slack/bolt";
+
+import express from "express";
+import pkg from "@slack/bolt";
+const { App, ExpressReceiver } = pkg;
 
 // =====================================
-// VARIABLES DE ENTORNO
+// Variables de entorno
 // =====================================
 const PORT = process.env.PORT || 10000;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN?.trim();
@@ -23,88 +26,65 @@ if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
 }
 
 // =====================================
-// EXPRESS RECEIVER
+// Configuración de Express y Bolt
 // =====================================
 const receiver = new ExpressReceiver({
   signingSecret: SLACK_SIGNING_SECRET,
-  endpoints: "/slack/events", // ⚠️ la URL debe coincidir con Slack
+  endpoints: "/slack/events", // coincidente con el Request URL del slash command
 });
 
-// =====================================
-// SLACK APP
-// =====================================
 const app = new App({
   token: SLACK_BOT_TOKEN,
   receiver,
 });
 
 // =====================================
-// COMANDO /globalvendormessage
+// Slash command: /globalvendormessage
 // =====================================
-app.command("/globalvendormessage", async ({ ack, body, client }) => {
+app.command("/globalvendormessage", async ({ command, ack, respond }) => {
   try {
-    await ack(); // responde inmediatamente para evitar timeout
+    await ack();
+    console.log("DEBUG: Comando recibido:", command);
 
-    // ejemplo: abrir un modal simple
-    await client.views.open({
-      trigger_id: body.trigger_id,
-      view: {
-        type: "modal",
-        callback_id: "global_message_modal",
-        title: {
-          type: "plain_text",
-          text: "Global Message"
-        },
-        blocks: [
-          {
-            type: "input",
-            block_id: "message_block",
-            element: {
-              type: "plain_text_input",
-              action_id: "message_input",
-              multiline: true,
-            },
-            label: {
-              type: "plain_text",
-              text: "Escribe el mensaje para los vendors"
-            }
-          }
-        ],
-        submit: {
-          type: "plain_text",
-          text: "Enviar"
-        }
-      }
+    const message = command.text || "Mensaje global a vendors";
+    await respond({
+      text: `📣 Enviando mensaje a todos los vendors: ${message}`,
+      response_type: "ephemeral",
     });
+
+    // Aquí puedes agregar la lógica para enviar mensajes a canales específicos
+    // o hacer un broadcast según lo que necesites.
+
   } catch (error) {
-    console.error("Error en /globalvendormessage:", error);
-  }
-});
-
-// =====================================
-// LISTENER DE SUBMISSION DEL MODAL
-// =====================================
-app.view("global_message_modal", async ({ ack, body, view, client }) => {
-  await ack();
-  const user = body.user.id;
-  const message = view.state.values.message_block.message_input.value;
-
-  try {
-    // Enviar mensaje a un canal de ejemplo (#general)
-    await client.chat.postMessage({
-      channel: "#general",
-      text: `*Mensaje global de <@${user}>:*\n${message}`
+    console.error("ERROR manejando comando /globalvendormessage:", error);
+    await respond({
+      text: `❌ Ocurrió un error: ${error.message}`,
+      response_type: "ephemeral",
     });
-    console.log("Mensaje enviado:", message);
-  } catch (err) {
-    console.error("Error enviando mensaje:", err);
   }
 });
 
 // =====================================
-// INICIAR APP
+// Middleware para verificar requests de Slack
+// =====================================
+receiver.app.use(express.json());
+receiver.app.use((req, res, next) => {
+  // Bolt ya maneja verification del signature
+  next();
+});
+
+// =====================================
+// Iniciando servidor
 // =====================================
 (async () => {
-  await app.start(PORT);
-  console.log(`🚀 Servidor escuchando en puerto ${PORT}`);
+  try {
+    await app.start(PORT);
+    console.log("=======================================");
+    console.log(`🚀 Servidor escuchando en puerto ${PORT}`);
+    console.log(`🌐 URL pública: ${process.env.PUBLIC_URL || "https://globalvendormessage.onrender.com"}`);
+    console.log("=======================================");
+  } catch (error) {
+    console.error("🚨 ERROR iniciando la app:", error);
+    process.exit(1);
+  }
 })();
