@@ -3,8 +3,8 @@ import express from "express";
 import bodyParser from "body-parser";
 import fs from "fs";
 import { WebClient } from "@slack/web-api";
-import BoltPkg from "@slack/bolt";  
-const { App, ExpressReceiver } = BoltPkg;  
+import BoltPkg from "@slack/bolt";  // <- IMPORT DEFAULT
+const { App, ExpressReceiver } = BoltPkg; // <- Extraer desde default
 
 // =====================================
 // Variables de entorno
@@ -80,7 +80,7 @@ expressApp.post("/slack/events", (req, res, next) => {
     console.log("✅ Challenge recibido de Slack:", challenge);
     return res.status(200).send(challenge);
   }
-  next();
+  next(); // pasar al receiver de Bolt para otros eventos
 });
 
 // =====================================
@@ -89,7 +89,7 @@ expressApp.post("/slack/events", (req, res, next) => {
 const receiver = new ExpressReceiver({
   signingSecret: SLACK_SIGNING_SECRET,
   endpoints: "/slack/events",
-  expressApp,
+  expressApp, // reutilizamos el express existente
 });
 
 // =====================================
@@ -106,44 +106,41 @@ const web = new WebClient(SLACK_BOT_TOKEN);
 // Slash Command: /globalvendormessage
 // =====================================
 boltApp.command("/globalvendormessage", async ({ ack, body, client }) => {
-  await ack(); // ✅ Respondemos inmediatamente para evitar dispatch_failed
+  await ack(); // ack inmediato evita "dispatch_failed"
 
-  // Ejecutar el resto de manera asíncrona
-  (async () => {
-    try {
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        view: {
-          type: "modal",
-          callback_id: "global_message_modal",
-          title: { type: "plain_text", text: "Enviar mensaje" },
-          submit: { type: "plain_text", text: "Enviar" },
-          close: { type: "plain_text", text: "Cancelar" },
-          blocks: [
-            {
-              type: "input",
-              block_id: "message_block",
-              label: { type: "plain_text", text: "Mensaje" },
-              element: { type: "plain_text_input", multiline: true, action_id: "message_input" },
+  try {
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: "modal",
+        callback_id: "global_message_modal",
+        title: { type: "plain_text", text: "Enviar mensaje" },
+        submit: { type: "plain_text", text: "Enviar" },
+        close: { type: "plain_text", text: "Cancelar" },
+        blocks: [
+          {
+            type: "input",
+            block_id: "message_block",
+            label: { type: "plain_text", text: "Mensaje" },
+            element: { type: "plain_text_input", multiline: true, action_id: "message_input" },
+          },
+          {
+            type: "input",
+            block_id: "channels_block",
+            label: { type: "plain_text", text: "Selecciona canales" },
+            element: {
+              type: "multi_static_select",
+              placeholder: { type: "plain_text", text: "Elige los canales" },
+              options: canales.map(c => ({ text: { type: "plain_text", text: c.label }, value: c.value })),
+              action_id: "channels_select",
             },
-            {
-              type: "input",
-              block_id: "channels_block",
-              label: { type: "plain_text", text: "Selecciona canales" },
-              element: {
-                type: "multi_static_select",
-                placeholder: { type: "plain_text", text: "Elige los canales" },
-                options: canales.map(c => ({ text: { type: "plain_text", text: c.label }, value: c.value })),
-                action_id: "channels_select",
-              },
-            },
-          ],
-        },
-      });
-    } catch (error) {
-      console.error("❌ Error abriendo modal:", error);
-    }
-  })();
+          },
+        ],
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error abriendo modal:", error);
+  }
 });
 
 // =====================================
@@ -189,10 +186,7 @@ boltApp.command("/logs", async ({ ack, body, client }) => {
     return client.chat.postEphemeral({ channel: userId, user: userId, text: "No hay mensajes en el log." });
   }
 
-  // Ejecutamos asíncronamente para evitar timeout
-  (async () => {
-    await sendLogsMessage(client, userId, logs, 0, 20);
-  })();
+  await sendLogsMessage(client, userId, logs, 0, 20);
 });
 
 async function sendLogsMessage(client, userId, logs, start, end) {
