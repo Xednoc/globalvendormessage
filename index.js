@@ -1,10 +1,13 @@
-require("dotenv").config();
-const express = require("express");
-const bodyParser = require("body-parser");
-const fs = require("fs");
-const { WebClient } = require("@slack/web-api");
-const { App, ExpressReceiver } = require("@slack/bolt");
+import "dotenv/config";
+import express from "express";
+import bodyParser from "body-parser";
+import fs from "fs";
+import { WebClient } from "@slack/web-api";
+import { App, ExpressReceiver } from "@slack/bolt";
 
+// =====================================
+// Variables de entorno
+// =====================================
 const PORT = process.env.PORT || 10000;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN?.trim();
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET?.trim();
@@ -21,44 +24,10 @@ if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
   process.exit(1);
 }
 
-// Lista de admins (Slack IDs)
+// =====================================
+// Admins
+// =====================================
 const ADMINS = ["U0839LCBZ4Y"];
-
-// =====================================
-// Express nativo + manejo de url_verification
-// =====================================
-const expressApp = express();
-expressApp.use(bodyParser.json());
-expressApp.use(bodyParser.urlencoded({ extended: true }));
-
-// Interceptar request de Slack para challenge
-expressApp.post("/slack/events", (req, res, next) => {
-  const { type, challenge } = req.body;
-  if (type === "url_verification") {
-    console.log("✅ Slack URL verification recibida, enviando challenge...");
-    return res.status(200).send(challenge); // Slack espera exactamente esto
-  }
-  next(); // Pasar al ExpressReceiver de Bolt para otros eventos
-});
-
-// =====================================
-// ExpressReceiver de Bolt
-// =====================================
-const receiver = new ExpressReceiver({
-  signingSecret: SLACK_SIGNING_SECRET,
-  endpoints: "/slack/events",
-  processBeforeResponse: true, // para que Bolt no responda antes de tu verificación
-});
-
-// =====================================
-// Bolt App
-// =====================================
-const boltApp = new App({
-  token: SLACK_BOT_TOKEN,
-  receiver,
-});
-
-const web = new WebClient(SLACK_BOT_TOKEN);
 
 // =====================================
 // Lista de canales
@@ -97,10 +66,47 @@ function filterLogs({ user, channel, keyword }) {
 }
 
 // =====================================
+// Express nativo
+// =====================================
+const expressApp = express();
+expressApp.use(bodyParser.json());
+expressApp.use(bodyParser.urlencoded({ extended: true }));
+
+// Endpoint para que Slack valide URL (url_verification)
+expressApp.post("/slack/events", (req, res, next) => {
+  const { type, challenge } = req.body;
+  if (type === "url_verification") {
+    console.log("✅ Challenge recibido de Slack:", challenge);
+    return res.status(200).send(challenge); // Slack espera exactamente esto
+  }
+  next(); // pasar al receiver de Bolt para otros eventos
+});
+
+// =====================================
+// ExpressReceiver de Bolt
+// =====================================
+const receiver = new ExpressReceiver({
+  signingSecret: SLACK_SIGNING_SECRET,
+  endpoints: "/slack/events",
+  expressApp, // reutilizamos el express existente
+});
+
+// =====================================
+// Bolt App
+// =====================================
+const boltApp = new App({
+  token: SLACK_BOT_TOKEN,
+  receiver,
+});
+
+const web = new WebClient(SLACK_BOT_TOKEN);
+
+// =====================================
 // Slash Command: /globalvendormessage
 // =====================================
 boltApp.command("/globalvendormessage", async ({ ack, body, client }) => {
   await ack();
+
   try {
     await client.views.open({
       trigger_id: body.trigger_id,
