@@ -1,164 +1,109 @@
-// =====================================
-// index.js - Código maestro estable
-// =====================================
+const { App } = require("@slack/bolt");
 
-import express from "express";
-import pkg from "@slack/bolt";
-const { App, ExpressReceiver } = pkg;
-
-// =====================================
-// Variables de entorno
-// =====================================
-const PORT = process.env.PORT || 10000;
-const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN?.trim();
-const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET?.trim();
-
-console.log("=======================================");
-console.log("DEBUG: Verificando variables de entorno");
-console.log("SLACK_BOT_TOKEN =", SLACK_BOT_TOKEN ? "✅ OK" : "❌ MISSING");
-console.log("SLACK_SIGNING_SECRET =", SLACK_SIGNING_SECRET ? "✅ OK" : "❌ MISSING");
-if (SLACK_SIGNING_SECRET) console.log("Longitud del secret:", SLACK_SIGNING_SECRET.length);
-console.log("=======================================");
-
-if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
-  console.error("🚨 ERROR: Faltan variables de entorno SLACK_BOT_TOKEN o SLACK_SIGNING_SECRET");
-  process.exit(1);
-}
-
-// =====================================
-// Configuración de Express y Bolt
-// =====================================
-const receiver = new ExpressReceiver({
-  signingSecret: SLACK_SIGNING_SECRET,
-  endpoints: "/slack/events",
-});
-
+// Inicializa la app
 const app = new App({
-  token: SLACK_BOT_TOKEN,
-  receiver,
+  token: process.env.SLACK_BOT_TOKEN,
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  port: process.env.PORT || 10000,
 });
 
-// =====================================
-// Lista de canales disponibles (fijos)
-// =====================================
-const canales = [
-  { label: "Canal 1", value: "C06M1AYMSTU" },
-  { label: "Canal 2", value: "C06M1B1JLAW" },
-  { label: "Canal 3", value: "C06LLQQDT0F" },
-  { label: "Canal 4", value: "C06LUNGPVGE" },
-  { label: "Canal 5", value: "C06MQ5R42QY" },
-  { label: "Canal 6", value: "C06LYE9NZ53" },
-  { label: "Canal 7", value: "C06M1B41JJW" },
-  { label: "Canal 8", value: "C06MQ62H0KS" },
-];
-
-// =====================================
-// Función para guardar log
-// =====================================
-function saveLog(user, message, channels) {
-  const logEntry = {
-    user,
-    message,
-    channels,
-    timestamp: new Date().toISOString(),
-  };
-  console.log("LOG Broadcast:", logEntry);
+// Función para obtener los canales donde el bot es miembro
+async function getBotChannels(client) {
+  const result = await client.conversations.list({
+    types: "public_channel,private_channel",
+    limit: 1000,
+  });
+  return result.channels.filter(c => c.is_member);
 }
 
-// =====================================
-// Slash command: /globalvendormessage
-// =====================================
-app.command("/globalvendormessage", async ({ command, ack, client, respond }) => {
-  try {
-    await ack();
-    console.log("DEBUG: Comando recibido:", command);
+// Función para abrir el modal
+async function openModal(trigger_id, client) {
+  const canalesBot = await getBotChannels(client);
 
-    const modal = {
+  if (canalesBot.length === 0) {
+    console.log("El bot no está en ningún canal.");
+    return;
+  }
+
+  const opcionesCanales = canalesBot.map(c => ({
+    text: { type: "plain_text", text: c.name },
+    value: c.id
+  }));
+
+  await client.views.open({
+    trigger_id: trigger_id,
+    view: {
       type: "modal",
-      callback_id: "broadcast_modal",
-      title: {
-        type: "plain_text",
-        text: "Global Vendor Message",
-      },
-      submit: {
-        type: "plain_text",
-        text: "Send",
-      },
-      close: {
-        type: "plain_text",
-        text: "Cancel",
-      },
+      callback_id: "global_message_modal",
+      title: { type: "plain_text", text: "Global Vendor Message" },
+      submit: { type: "plain_text", text: "Send" },
+      close: { type: "plain_text", text: "Cancel" },
       blocks: [
         {
           type: "input",
           block_id: "message_block",
+          label: { type: "plain_text", text: "Message" },
           element: {
             type: "plain_text_input",
-            multiline: true,
             action_id: "message_input",
-          },
-          label: {
-            type: "plain_text",
-            text: "Mensaje",
-          },
+            multiline: true
+          }
         },
         {
           type: "input",
           block_id: "channels_block",
+          label: { type: "plain_text", text: "Select channels" },
           element: {
             type: "multi_static_select",
-            placeholder: {
-              type: "plain_text",
-              text: "Selecciona los canales",
-            },
-            options: canales.map((c) => ({
-              text: { type: "plain_text", text: c.label },
-              value: c.value,
-            })),
             action_id: "channels_select",
-          },
-          label: {
-            type: "plain_text",
-            text: "Canales destino",
-          },
-        },
-      ],
-    };
+            placeholder: { type: "plain_text", text: "Select channels" },
+            options: opcionesCanales
+          }
+        }
+      ]
+    }
+  });
+}
 
-    await client.views.open({
-      trigger_id: command.trigger_id,
-      view: modal,
-    });
-  } catch (error) {
-    console.error("ERROR abriendo modal:", error);
-    await respond({
-      text: `❌ Ocurrió un error: ${error.message}`,
-      response_type: "ephemeral",
-    });
-  }
-});
-
-// =====================================
-// Middleware para verificar requests de Slack
-// =====================================
-receiver.app.use(express.json());
-receiver.app.use((req, res, next) => {
-  // Bolt ya maneja verification del signature
-  next();
-});
-
-// =====================================
-// Iniciando servidor
-// =====================================
-(async () => {
+// Evento slash command
+app.command("/globalvendormessage", async ({ ack, body, client }) => {
+  await ack();
   try {
-    await app.start(PORT);
-    console.log("=======================================");
-    console.log(`🚀 Servidor escuchando en puerto ${PORT}`);
-    console.log(`🌐 URL pública: ${process.env.PUBLIC_URL || "https://globalvendormessage.onrender.com"}`);
-    console.log("=======================================");
+    await openModal(body.trigger_id, client);
   } catch (error) {
-    console.error("🚨 ERROR iniciando la app:", error);
-    process.exit(1);
+    console.error("Error abriendo modal:", error);
   }
+});
+
+// Manejo del submit del modal
+app.view("global_message_modal", async ({ ack, body, view, client }) => {
+  await ack();
+
+  const message = view.state.values.message_block.message_input.value;
+  const selectedChannels = view.state.values.channels_block.channels_select.selected_options.map(o => o.value);
+
+  // Enviar mensaje a todos los canales seleccionados
+  for (const channel of selectedChannels) {
+    try {
+      await client.chat.postMessage({
+        channel: channel,
+        text: message
+      });
+    } catch (error) {
+      console.error(`Error enviando mensaje a ${channel}:`, error);
+    }
+  }
+
+  // Guardar log
+  console.log({
+    user: body.user.id,
+    message: message,
+    channels: selectedChannels
+  });
+});
+
+// Arrancar la app
+(async () => {
+  await app.start();
+  console.log("⚡ Global Vendor Message bot corriendo!");
 })();
