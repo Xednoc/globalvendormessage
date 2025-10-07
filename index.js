@@ -1,59 +1,48 @@
-// index.js
 import express from "express";
 import bodyParser from "body-parser";
+import { App } from "@slack/bolt";
 import dotenv from "dotenv";
-import pkg from "@slack/bolt";
-const { App, ExpressReceiver } = pkg;
 
 dotenv.config();
 
-// Configura el receptor de Express para Slack
-const receiver = new ExpressReceiver({
-  signingSecret: process.env.SLACK_SIGNING_SECRET
-});
-
-// Inicializa el app de Bolt
-const app = new App({
-  token: process.env.SLACK_BOT_TOKEN,
-  receiver
-});
-
-// -------------------------
-// Express propio para manejar challenge directamente
-// -------------------------
-const server = express();
-server.use(bodyParser.json());
-
-// Endpoint para Slack Events API
-server.post("/slack/events", (req, res) => {
-  const body = req.body;
-
-  // Manejo de challenge para url_verification
-  if (body.type === "url_verification") {
-    console.log("Challenge recibido de Slack:", body.challenge);
-    return res.status(200).send(body.challenge);
-  }
-
-  // Para otros eventos Bolt se encarga
-  res.status(200).send("OK");
-});
-
-// -------------------------
-// Ejemplo de un listener de eventos de Bolt
-// -------------------------
-app.event("app_mention", async ({ event, say }) => {
-  await say(`Hola <@${event.user}>, recibí tu mensaje!`);
-});
-
-// -------------------------
-// Inicia el servidor Express y el Bolt receiver
-// -------------------------
 const PORT = process.env.PORT || 10000;
 
+// Inicializamos Express
+const app = express();
+app.use(bodyParser.json());
+
+// Ruta para Slack Events API
+app.post("/slack/events", async (req, res) => {
+  const { type, challenge } = req.body;
+
+  // Validación del challenge
+  if (type === "url_verification") {
+    return res.status(200).send({ challenge });
+  }
+
+  // Aquí puedes manejar otros eventos de Slack si quieres
+  // Por ejemplo: message, reaction_added, etc.
+  res.status(200).send();
+});
+
+// Inicializamos Slack Bolt App
+const boltApp = new App({
+  token: process.env.SLACK_BOT_TOKEN,
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+});
+
+// Ejemplo: escucha mensajes y responde "Hola"
+boltApp.message(/.*/, async ({ message, say }) => {
+  await say(`Hola <@${message.user}>!`);
+});
+
+// Start Bolt App
 (async () => {
-  await app.start(PORT);
-  server.listen(PORT, () => {
-    console.log(`Servidor escuchando en puerto ${PORT}`);
-    console.log("Bot de Slack activo y listo para eventos.");
-  });
+  await boltApp.start();
+  console.log("Bolt App listo!");
 })();
+
+// Iniciamos servidor Express
+app.listen(PORT, () => {
+  console.log(`Servidor escuchando en puerto ${PORT}`);
+});
