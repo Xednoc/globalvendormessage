@@ -1,6 +1,4 @@
 require("dotenv").config();
-const express = require("express");
-const bodyParser = require("body-parser");
 const fs = require("fs");
 const { WebClient } = require("@slack/web-api");
 const { App, ExpressReceiver } = require("@slack/bolt");
@@ -25,27 +23,19 @@ if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
 const ADMINS = ["U0839LCBZ4Y"];
 
 // =====================================
-// Express nativo
-// =====================================
-const expressApp = express();
-expressApp.use(bodyParser.json());
-expressApp.use(bodyParser.urlencoded({ extended: true }));
-
-// Endpoint para que Slack valide URL (url_verification)
-expressApp.post("/slack/events", (req, res, next) => {
-  const { type, challenge } = req.body;
-  if (type === "url_verification") {
-    return res.status(200).send(challenge); // Slack espera exactamente esto
-  }
-  next(); // pasar al receiver de Bolt para otros eventos
-});
-
-// =====================================
 // ExpressReceiver de Bolt
 // =====================================
 const receiver = new ExpressReceiver({
   signingSecret: SLACK_SIGNING_SECRET,
   endpoints: "/slack/events",
+});
+
+// Endpoint para verificación de URL (challenge)
+receiver.app.post("/slack/events", (req, res, next) => {
+  if (req.body?.type === "url_verification") {
+    return res.status(200).send(req.body.challenge);
+  }
+  next();
 });
 
 // =====================================
