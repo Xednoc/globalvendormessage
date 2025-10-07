@@ -14,41 +14,57 @@ console.log("=======================================");
 console.log("DEBUG: Verificando variables de entorno");
 console.log("SLACK_BOT_TOKEN =", SLACK_BOT_TOKEN ? "✅ OK" : "❌ MISSING");
 console.log("SLACK_SIGNING_SECRET =", SLACK_SIGNING_SECRET ? "✅ OK" : "❌ MISSING");
-if (SLACK_SIGNING_SECRET) console.log("Longitud del secret:", SLACK_SIGNING_SECRET.length);
+if (SLACK_SIGNING_SECRET)
+  console.log("Longitud del secret:", SLACK_SIGNING_SECRET.length);
 console.log("=======================================");
-
-const ADMINS = ["U0839LCBZ4Y"]; // Tu Slack ID
 
 if (!SLACK_BOT_TOKEN || !SLACK_SIGNING_SECRET) {
   console.error("🚨 ERROR: Faltan variables de entorno SLACK_BOT_TOKEN o SLACK_SIGNING_SECRET");
   process.exit(1);
 }
 
-// ================= EXPRESS BÁSICO PARA CHALLENGE =================
+// =====================================
+// CONFIG EXPRESS & BODY PARSER
+// =====================================
 const expressApp = express();
 expressApp.use(bodyParser.json());
+expressApp.use(bodyParser.urlencoded({ extended: true }));
 
-// Endpoint para responder el challenge de Slack
+// =====================================
+// HANDLER URL VERIFICATION DE SLACK
+// =====================================
 expressApp.post("/slack/events", (req, res, next) => {
   const { type, challenge } = req.body;
   if (type === "url_verification") {
-    return res.send(challenge); // Responde Slack
+    // Responde con el challenge solo para verificación de Slack
+    return res.status(200).send(challenge);
   }
-  next();
+  next(); // pasa el resto a Bolt
 });
 
-// ================= CONFIGURACIÓN DE BOLT =================
+// =====================================
+// EXPRESS RECEIVER
+// =====================================
 const receiver = new ExpressReceiver({
   signingSecret: SLACK_SIGNING_SECRET,
-  endpoints: "/slack/events",
+  endpoints: "/slack/events", // misma ruta
+  expressApp, // usamos nuestro express existente
 });
 
+// =====================================
+// BOLT APP
+// =====================================
 const boltApp = new App({
   token: SLACK_BOT_TOKEN,
   receiver,
 });
 
 const web = new WebClient(SLACK_BOT_TOKEN);
+
+// =====================================
+// ADMINS
+// =====================================
+const ADMINS = ["U0839LCBZ4Y"]; // Tu Slack ID
 
 // =====================================
 // CANALES
@@ -65,7 +81,7 @@ const canales = [
 ];
 
 // =====================================
-// GUARDAR LOG
+// FUNCIONES DE LOG
 // =====================================
 function saveLog(user, message, channels) {
   const logEntry = {
@@ -81,9 +97,6 @@ function saveLog(user, message, channels) {
   fs.writeFileSync(logFile, JSON.stringify(logs, null, 2));
 }
 
-// =====================================
-// FILTRAR LOGS
-// =====================================
 function filterLogs({ user, channel, keyword }) {
   const logFile = "message_log.json";
   if (!fs.existsSync(logFile)) return [];
@@ -95,7 +108,7 @@ function filterLogs({ user, channel, keyword }) {
 }
 
 // =====================================
-// COMANDO /globalvendormessage
+// /globalvendormessage
 // =====================================
 boltApp.command("/globalvendormessage", async ({ ack, body, client }) => {
   await ack();
@@ -139,7 +152,7 @@ boltApp.command("/globalvendormessage", async ({ ack, body, client }) => {
 });
 
 // =====================================
-// MODAL
+// MODAL CALLBACK
 // =====================================
 boltApp.view("global_message_modal", async ({ ack, body, view, client }) => {
   await ack();
@@ -210,7 +223,7 @@ async function sendLogsMessage(client, userId, logs, start, end) {
 }
 
 // =====================================
-// START SERVER
+// INICIAR SERVIDOR
 // =====================================
 (async () => {
   await boltApp.start(PORT);
