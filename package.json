@@ -1,13 +1,17 @@
 {
-  "name": "nodejs",
+  "name": "globalvendormessage",
   "version": "1.0.0",
+  "description": "Bot de Slack para enviar mensajes a múltiples canales y logs interactivos",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
+  "keywords": ["slack", "bot", "express", "bolt"],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
     "@slack/web-api": "^7.9.3",
-    "@slack/bolt": "^4.8.1",
+    "@slack/bolt": "^4.7.0",
     "body-parser": "^2.2.0",
     "express": "^5.1.0",
     "dotenv": "^16.3.1"
