@@ -1,113 +1,101 @@
-// index.cjs
 const { App } = require("@slack/bolt");
+const { WebClient } = require("@slack/web-api");
+const dotenv = require("dotenv");
 
-// Configuración del bot
+dotenv.config();
+
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-  socketMode: true,
-  appToken: process.env.SLACK_APP_TOKEN, // Asegúrate de tenerlo si usas Socket Mode
+  signingSecret: process.env.SLACK_SIGNING_SECRET
 });
 
-// Función para obtener todos los canales donde el bot está invitado
-async function getChannels() {
-  try {
-    const result = await app.client.conversations.list({
-      types: "public_channel,private_channel",
-      limit: 1000,
-    });
+const web = new WebClient(process.env.SLACK_BOT_TOKEN);
 
-    // Filtrar solo canales donde el bot es miembro
-    const botChannels = result.channels.filter((c) => c.is_member);
-    return botChannels;
+// Función para obtener todos los canales donde el bot está invitado
+async function obtenerCanalesBot() {
+  try {
+    let canales = [];
+    let cursor;
+
+    do {
+      const result = await web.conversations.list({
+        types: "public_channel,private_channel",
+        limit: 1000,
+        cursor: cursor
+      });
+
+      // Filtrar solo canales donde el bot está
+      const botId = (await web.auth.test()).user_id;
+      const canalesConBot = result.channels.filter(ch => ch.is_member);
+
+      canales = canales.concat(canalesConBot);
+      cursor = result.response_metadata.next_cursor;
+
+    } while (cursor);
+
+    return canales;
   } catch (error) {
-    console.error("ERROR obteniendo canales:", error);
+    console.error("Error obteniendo canales:", error);
     return [];
   }
 }
 
-// Comando slash /globalvendormessage
-app.command("/globalvendormessage", async ({ command, ack, client }) => {
+// Función para enviar un mensaje a todos los canales del bot
+async function enviarMensajeATodosCanales(texto) {
+  const canales = await obtenerCanalesBot();
+
+  for (const canal of canales) {
+    try {
+      await web.chat.postMessage({
+        channel: canal.id,
+        text: texto
+      });
+      console.log(`Mensaje enviado a ${canal.name}`);
+    } catch (error) {
+      console.error(`Error enviando mensaje a ${canal.name}:`, error);
+    }
+  }
+}
+
+// Ejemplo: enviar un mensaje al iniciar
+(async () => {
+  await app.start(process.env.PORT || 10000);
+  console.log("🚀 Bot corriendo!");
+
+  // Envía un mensaje a todos los canales al iniciar
+  await enviarMensajeATodosCanales("¡Hola a todos! Este es un mensaje de prueba del bot.");
+})();
+
+// Manejo de comandos slash o eventos si los tienes
+app.command("/globalvendormessage", async ({ ack, body, client }) => {
   await ack();
-
-  const channels = await getChannels();
-
-  // Abrir modal
   try {
+    // Aquí puedes abrir un modal o enviar mensaje directo
     await client.views.open({
-      trigger_id: command.trigger_id,
+      trigger_id: body.trigger_id,
       view: {
         type: "modal",
-        callback_id: "global_message_modal",
-        title: {
-          type: "plain_text",
-          text: "Global Vendor Message",
-        },
+        callback_id: "modal-id",
+        title: { type: "plain_text", text: "Mensaje a todos los canales" },
         blocks: [
           {
             type: "input",
-            block_id: "message_block",
-            element: {
-              type: "plain_text_input",
-              multiline: true,
-              action_id: "message_input",
-            },
-            label: {
-              type: "plain_text",
-              text: "Mensaje",
-            },
-          },
-          {
-            type: "input",
-            block_id: "channel_block",
-            element: {
-              type: "static_select",
-              action_id: "channel_select",
-              options: channels.map((c) => ({
-                text: {
-                  type: "plain_text",
-                  text: `#${c.name}`,
-                },
-                value: c.id,
-              })),
-            },
-            label: {
-              type: "plain_text",
-              text: "Selecciona canal",
-            },
-          },
+            block_id: "mensaje",
+            label: { type: "plain_text", text: "Mensaje" },
+            element: { type: "plain_text_input", action_id: "texto" }
+          }
         ],
-        submit: {
-          type: "plain_text",
-          text: "Enviar",
-        },
-      },
+        submit: { type: "plain_text", text: "Enviar" }
+      }
     });
   } catch (error) {
-    console.error("ERROR abriendo modal:", error);
+    console.error("Error abriendo modal:", error);
   }
 });
 
-// Listener para el submit del modal
-app.view("global_message_modal", async ({ ack, view, client, body }) => {
+// Escucha el submit del modal
+app.view("modal-id", async ({ ack, body, view }) => {
   await ack();
-
-  const message = view.state.values.message_block.message_input.value;
-  const channelId = view.state.values.channel_block.channel_select.selected_option.value;
-
-  try {
-    await client.chat.postMessage({
-      channel: channelId,
-      text: message,
-    });
-    console.log(`Mensaje enviado a canal ${channelId}`);
-  } catch (error) {
-    console.error("ERROR enviando mensaje:", error);
-  }
+  const texto = view.state.values.mensaje.texto.value;
+  await enviarMensajeATodosCanales(texto);
 });
-
-// Iniciar app
-(async () => {
-  await app.start();
-  console.log("⚡ Bot corriendo");
-})();
