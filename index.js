@@ -1,5 +1,5 @@
 // =====================================
-// index.js - Código maestro completo con admin único y comando abierto a todos
+// index.js - Código maestro completo con selección dinámica de canales
 // =====================================
 
 import express from "express";
@@ -39,10 +39,15 @@ const app = new App({
 });
 
 // =====================================
-// Configuración admin y canales fijos
+// Configuración admin y lista de canales posibles
 // =====================================
 const ADMIN_USER_ID = "TU_ID_DE_USUARIO"; // reemplaza con tu ID
-const FIXED_CHANNELS = ["CANAL_ID_1", "CANAL_ID_2", "CANAL_ID_3"]; // reemplaza con tus canales
+const POSSIBLE_CHANNELS = [
+  { id: "CANAL_ID_1", name: "canal-uno" },
+  { id: "CANAL_ID_2", name: "canal-dos" },
+  { id: "CANAL_ID_3", name: "canal-tres" },
+  // agrega todos los canales que quieras permitir seleccionar
+];
 
 // =====================================
 // Slash command: /globalvendormessage (todos pueden usar)
@@ -51,7 +56,7 @@ app.command("/globalvendormessage", async ({ ack, body, client, respond }) => {
   await ack();
 
   try {
-    // Abrir modal para escribir mensaje
+    // Abrir modal para escribir mensaje y seleccionar canales
     await client.views.open({
       trigger_id: body.trigger_id,
       view: {
@@ -76,12 +81,18 @@ app.command("/globalvendormessage", async ({ ack, body, client, respond }) => {
             label: { type: "plain_text", text: "Mensaje" },
           },
           {
-            type: "section",
-            block_id: "channels_display",
-            text: {
-              type: "mrkdwn",
-              text: `📌 *Canales destino (fijos)*:\n${FIXED_CHANNELS.map(c => `<#${c}>`).join(", ")}`,
+            type: "input",
+            block_id: "channels_select",
+            element: {
+              type: "multi_static_select",
+              action_id: "channels",
+              placeholder: { type: "plain_text", text: "Selecciona los canales" },
+              options: POSSIBLE_CHANNELS.map(ch => ({
+                text: { type: "plain_text", text: ch.name },
+                value: ch.id,
+              })),
             },
+            label: { type: "plain_text", text: "Canales destino" },
           },
         ],
       },
@@ -103,6 +114,7 @@ app.view("global_vendor_message_modal", async ({ ack, body, view, client }) => {
 
   try {
     const message = view.state.values.message_input.message.value;
+    const selectedChannels = view.state.values.channels_select.channels.selected_options.map(opt => opt.value);
 
     // Abrir modal de confirmación con preview
     await client.views.open({
@@ -110,7 +122,11 @@ app.view("global_vendor_message_modal", async ({ ack, body, view, client }) => {
       view: {
         type: "modal",
         callback_id: "global_vendor_message_confirm_modal",
-        private_metadata: JSON.stringify({ message, user: body.user.id }),
+        private_metadata: JSON.stringify({
+          message,
+          user: body.user.id,
+          channels: selectedChannels,
+        }),
         title: { type: "plain_text", text: "Confirma el Mensaje" },
         submit: { type: "plain_text", text: "Enviar" },
         close: { type: "plain_text", text: "Cancelar" },
@@ -119,7 +135,7 @@ app.view("global_vendor_message_modal", async ({ ack, body, view, client }) => {
             type: "section",
             text: {
               type: "mrkdwn",
-              text: `📣 *Mensaje a enviar:*\n${message}\n\n*Canales destino:*\n${FIXED_CHANNELS.map(c => `<#${c}>`).join(", ")}`,
+              text: `📣 *Mensaje a enviar:*\n${message}\n\n*Canales seleccionados:*\n${selectedChannels.map(c => `<#${c}>`).join(", ")}`,
             },
           },
         ],
@@ -140,6 +156,7 @@ app.view("global_vendor_message_confirm_modal", async ({ ack, body, view, client
     const metadata = JSON.parse(view.private_metadata);
     const message = metadata.message;
     const user = metadata.user;
+    const selectedChannels = metadata.channels;
     const timestamp = new Date().toISOString();
 
     // Log completo
@@ -147,13 +164,13 @@ app.view("global_vendor_message_confirm_modal", async ({ ack, body, view, client
     console.log(`USUARIO: ${user}`);
     console.log(`FECHA: ${timestamp}`);
     console.log(`MENSAJE: ${message}`);
-    console.log(`CANALES: ${FIXED_CHANNELS.join(", ")}`);
+    console.log(`CANALES: ${selectedChannels.join(", ")}`);
     console.log("=======================================");
 
-    // Enviar mensaje a todos los canales fijos
-    for (const channel of FIXED_CHANNELS) {
+    // Enviar mensaje a los canales seleccionados
+    for (const channel of selectedChannels) {
       await client.chat.postMessage({
-        channel: channel,
+        channel,
         text: `📣 ${message}`,
       });
     }
@@ -161,11 +178,11 @@ app.view("global_vendor_message_confirm_modal", async ({ ack, body, view, client
     // Confirmación efímera al usuario
     await client.chat.postEphemeral({
       channel: user,
-      user: user,
-      text: `✅ Mensaje enviado a ${FIXED_CHANNELS.length} canal(es).`,
+      user,
+      text: `✅ Mensaje enviado a ${selectedChannels.length} canal(es).`,
     });
 
-    // Aquí podrías usar tu ID de admin en el futuro para control extra si quisieras
+    // Admin log opcional
     if (user === ADMIN_USER_ID) {
       console.log("Admin ha enviado un mensaje.");
     }
