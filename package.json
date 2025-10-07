@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Bot de Slack para enviar mensajes a múltiples canales y logs interactivos",
   "main": "index.js",
+  "type": "module",                <-- agrega esta línea
   "scripts": {
     "preinstall": "npm cache clean --force",
     "start": "node index.js"
