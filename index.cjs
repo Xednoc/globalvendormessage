@@ -108,4 +108,21 @@ app.view("send_message_modal", async ({ ack, body, view, client }) => {
 // ============================
 // 🌐 EXPRESS SERVER PARA HEALTH
 // ============================
-const expressApp = ex
+const expressApp = express();
+
+expressApp.get("/health", (req, res) => {
+  res.status(200).send("OK");
+});
+
+const PORT = process.env.PORT || 10000;
+expressApp.listen(PORT, () => {
+  console.log(`🌐 Health endpoint activo en /health (puerto ${PORT})`);
+});
+
+// ============================
+// 🚀 INICIO DEL BOT
+// ============================
+(async () => {
+  await app.start();
+  console.log("⚡️ Slack bot is running");
+})();
