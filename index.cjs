@@ -10,17 +10,41 @@ const app = new App({
   signingSecret: process.env.SLACK_SIGNING_SECRET,
 });
 
-// Listener para Slash Command
-app.command('/globalvendormessage', async ({ ack, body, client }) => {
-  try {
-    await ack(); // OBLIGATORIO para que Slack no marque "dispatch_failed"
+// Función para obtener todos los canales donde el bot está presente
+async function getAllBotChannels(client) {
+  let cursor;
+  const channels = [];
 
-    // Obtener lista de canales públicos donde el bot es miembro
-    const result = await client.conversations.list({ types: 'public_channel' });
-    const channels = result.channels.map(c => ({
-      text: { type: 'plain_text', text: c.name },
-      value: c.id,
-    }));
+  do {
+    const result = await client.conversations.list({
+      types: 'public_channel,private_channel',
+      limit: 1000,
+      cursor,
+    });
+
+    for (const c of result.channels) {
+      // Solo incluir canales donde el bot está dentro (is_member = true)
+      if (c.is_member) {
+        channels.push({
+          text: { type: 'plain_text', text: c.name },
+          value: c.id,
+        });
+      }
+    }
+
+    cursor = result.response_metadata?.next_cursor;
+  } while (cursor);
+
+  return channels;
+}
+
+// Slash command
+app.command('/globalvendormessage', async ({ ack, body, client }) => {
+  await ack();
+
+  try {
+    // Obtener todos los canales donde el bot ya está dentro
+    const channels = await getAllBotChannels(client);
 
     // Abrir modal
     await client.views.open({
@@ -46,7 +70,9 @@ app.command('/globalvendormessage', async ({ ack, body, client }) => {
               type: 'multi_static_select',
               action_id: 'channels_select',
               placeholder: { type: 'plain_text', text: 'Canales disponibles' },
-              options: channels,
+              options: channels.length
+                ? channels
+                : [{ text: { type: 'plain_text', text: 'No hay canales disponibles' }, value: 'none' }],
             },
           },
         ],
@@ -58,19 +84,17 @@ app.command('/globalvendormessage', async ({ ack, body, client }) => {
 });
 
 // Listener para el envío del modal
-app.view('send_message_modal', async ({ ack, body, view, client }) => {
-  await ack(); // Confirmar a Slack que recibimos el modal
+app.view('send_message_modal', async ({ ack, view, client }) => {
+  await ack();
 
   try {
     const message = view.state.values['message_block']['message_input'].value;
-    const channelIds = view.state.values['channels_block']['channels_select'].selected_options.map(o => o.value);
+    const selected = view.state.values['channels_block']['channels_select'].selected_options;
 
-    // Enviar mensaje a todos los canales seleccionados
-    for (const channel of channelIds) {
-      await client.chat.postMessage({
-        channel,
-        text: message,
-      });
+    if (!selected || selected.length === 0) return;
+
+    for (const ch of selected) {
+      await client.chat.postMessage({ channel: ch.value, text: message });
     }
   } catch (error) {
     console.error('Error enviando mensajes:', error);
