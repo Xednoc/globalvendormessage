@@ -103,10 +103,10 @@ app.view('send_message_modal', async ({ ack, view, client }) => {
 
 // Express server
 const expressApp = express();
-expressApp.listen(10000, () => console.log('Servidor Express escuchando en puerto 10000'));
 
-// Start Bolt app
-(async () => {
-  await app.start();
-  console.log('⚡️ Slack Bolt app corriendo en Socket Mode');
-})();
+// ENDPOINT PARA MONITOREO (UptimeRobot)
+expressApp.get('/health', (req, res) => {
+  res.send('OK');  // Respuesta simple para mantener el bot activo
+});
+
+expressApp.listen(10000, () => console.log('Servidor Express escuchando en puerto 10000'));
