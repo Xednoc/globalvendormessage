@@ -1,111 +1,168 @@
-// ===============================
-// 🧠 GLOBAL VENDOR MESSAGE BOT
-// ===============================
+// index.cjs
 
-const { App } = require('@slack/bolt');
-const express = require('express');
+import express from "express";
+import pkg from "@slack/bolt";
+const { App } = pkg;
 
-// -------------------------------
-// ⚙️ Configuración de Slack (SOCKET MODE)
-// -------------------------------
+// ================================
+// ⚙️ Configuración del bot de Slack
+// ================================
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  socketMode: false,
   appToken: process.env.SLACK_APP_TOKEN,
-  socketMode: true
+  port: process.env.PORT || 3000,
 });
 
-// -------------------------------
-// 💬 Comando principal: /globalvendormessage
-// -------------------------------
-app.command('/globalvendormessage', async ({ ack, body, client }) => {
+// ============================================
+// 🧠 Comando principal para abrir el modal
+// ============================================
+app.command("/globalvendormessage", async ({ ack, body, client }) => {
   await ack();
 
   try {
-    // Abre el modal cuando se ejecuta el comando
+    // Obtener la lista de canales donde el bot ya es miembro
+    let cursor;
+    let allChannels = [];
+
+    do {
+      const result = await client.conversations.list({
+        types: "public_channel,private_channel",
+        exclude_archived: true,
+        limit: 200,
+        cursor,
+      });
+
+      const joinedChannels = result.channels.filter((ch) => ch.is_member);
+      allChannels = allChannels.concat(joinedChannels);
+
+      cursor = result.response_metadata?.next_cursor;
+    } while (cursor);
+
+    // Crear opciones para el menú
+    const options = allChannels.map((ch) => ({
+      text: {
+        type: "plain_text",
+        text: ch.name,
+        emoji: true,
+      },
+      value: ch.id,
+    }));
+
+    // Abrir el modal
     await client.views.open({
       trigger_id: body.trigger_id,
       view: {
-        type: 'modal',
-        callback_id: 'vendor_message_modal',
-        title: { type: 'plain_text', text: 'Global Vendor Message' },
-        submit: { type: 'plain_text', text: 'Send' },
-        close: { type: 'plain_text', text: 'Cancel' },
+        type: "modal",
+        callback_id: "send_message_modal",
+        title: {
+          type: "plain_text",
+          text: "Enviar mensaje global",
+          emoji: true,
+        },
+        submit: {
+          type: "plain_text",
+          text: "Enviar",
+          emoji: true,
+        },
+        close: {
+          type: "plain_text",
+          text: "Cancelar",
+          emoji: true,
+        },
         blocks: [
           {
-            type: 'input',
-            block_id: 'message_input',
-            label: { type: 'plain_text', text: 'Message to send to all channels:' },
+            type: "input",
+            block_id: "channel_select_block",
+            label: {
+              type: "plain_text",
+              text: "Selecciona los canales",
+              emoji: true,
+            },
             element: {
-              type: 'plain_text_input',
-              action_id: 'message',
-              multiline: true
-            }
-          }
-        ]
-      }
+              type: "multi_static_select",
+              action_id: "selected_channels",
+              placeholder: {
+                type: "plain_text",
+                text: "Selecciona uno o varios canales",
+              },
+              options: options.slice(0, 100), // Slack limita a 100 opciones
+            },
+          },
+          {
+            type: "input",
+            block_id: "message_input_block",
+            element: {
+              type: "plain_text_input",
+              action_id: "message_input",
+              multiline: true,
+            },
+            label: {
+              type: "plain_text",
+              text: "Escribe el mensaje",
+              emoji: true,
+            },
+          },
+        ],
+      },
     });
   } catch (error) {
-    console.error('❌ Error opening modal:', error);
+    console.error("Error al abrir el modal:", error);
   }
 });
 
-// -------------------------------
-// 📤 Envío del mensaje a todos los canales
-// -------------------------------
-app.view('vendor_message_modal', async ({ ack, view, client }) => {
+// ============================================
+// 📩 Acción al enviar el modal
+// ============================================
+app.view("send_message_modal", async ({ ack, body, view, client }) => {
   await ack();
 
-  const message = view.state.values.message_input.message.value;
-
   try {
-    // Paginar y enviar solo a canales donde el bot esté presente
-    let cursor;
-    do {
-      const response = await client.conversations.list({
-        types: 'public_channel,private_channel',
-        exclude_archived: true,
-        limit: 200,
-        cursor
+    const selectedChannels =
+      view.state.values.channel_select_block.selected_channels.selected_options.map(
+        (opt) => opt.value
+      );
+
+    const message =
+      view.state.values.message_input_block.message_input.value;
+
+    // Enviar mensaje a cada canal
+    for (const channelId of selectedChannels) {
+      await client.chat.postMessage({
+        channel: channelId,
+        text: message,
       });
+    }
 
-      const joinedChannels = response.channels.filter(ch => ch.is_member);
-      for (const channel of joinedChannels) {
-        try {
-          await client.chat.postMessage({
-            channel: channel.id,
-            text: message
-          });
-        } catch (err) {
-          console.error(`❌ Error sending message to ${channel.name}:`, err.data?.error || err);
-        }
-      }
-
-      cursor = response.response_metadata?.next_cursor;
-    } while (cursor);
-
-    console.log('✅ Message sent to all joined channels');
+    // Confirmar al usuario
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: "✅ Mensaje enviado a los canales seleccionados.",
+    });
   } catch (error) {
-    console.error('❌ Error listing or sending messages:', error);
+    console.error("Error al enviar mensaje:", error);
   }
 });
 
-// -------------------------------
-// 🩺 Endpoint /health (Render Uptime)
-// -------------------------------
+// ============================================
+// 🚀 Servidor Express (para Render / UptimeRobot)
+// ============================================
 const expressApp = express();
 
-expressApp.get('/health', (req, res) => {
-  res.status(200).send('OK');
+// Endpoint para mantener vivo el bot
+expressApp.get("/health", (req, res) => {
+  res.status(200).send("OK");
 });
 
-expressApp.listen(10000, () => {
-  console.log('🌐 Health endpoint activo en /health');
+// Iniciar Express en un puerto separado (necesario en Render)
+const EXPRESS_PORT = process.env.EXPRESS_PORT || 10000;
+expressApp.listen(EXPRESS_PORT, () => {
+  console.log(`Servidor Express activo en puerto ${EXPRESS_PORT}`);
 });
 
-// -------------------------------
-// 🚀 Inicio del bot
-// -------------------------------
+// Iniciar Bolt App
 (async () => {
   await app.start();
-  console.log('⚡️ Slack bot corriendo correctamente');
+  console.log("⚡ Bot de Slack en ejecución correctamente");
 })();
