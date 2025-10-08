@@ -1,43 +1,34 @@
+// index.cjs
 require('dotenv').config();
 const { App } = require('@slack/bolt');
 const express = require('express');
 
-// Inicializa el app de Slack en Socket Mode
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  appToken: process.env.SLACK_APP_TOKEN, // App-Level Token para Socket Mode
   socketMode: true,
-  appToken: process.env.SLACK_APP_TOKEN
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
 });
 
-// Express para que Render mantenga vivo el servicio
-const server = express();
-const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => console.log(`Servidor Express escuchando en puerto ${PORT}`));
-
-// Comando para abrir modal
-app.command('/mensaje', async ({ ack, body, client }) => {
-  await ack();
-
+// Listener para Slash Command
+app.command('/globalvendormessage', async ({ ack, body, client }) => {
   try {
-    // Lista de canales públicos y privados
-    const result = await client.conversations.list({ types: 'public_channel,private_channel' });
-    const publicChannels = result.channels.filter(c => !c.is_private).map(c => ({
+    await ack(); // OBLIGATORIO para que Slack no marque "dispatch_failed"
+
+    // Obtener lista de canales públicos donde el bot es miembro
+    const result = await client.conversations.list({ types: 'public_channel' });
+    const channels = result.channels.map(c => ({
       text: { type: 'plain_text', text: c.name },
-      value: c.id
-    }));
-    const privateChannels = result.channels.filter(c => c.is_private).map(c => ({
-      text: { type: 'plain_text', text: c.name },
-      value: c.id
+      value: c.id,
     }));
 
-    // Abre modal con dos select, uno para públicos y otro para privados
+    // Abrir modal
     await client.views.open({
       trigger_id: body.trigger_id,
       view: {
         type: 'modal',
         callback_id: 'send_message_modal',
-        title: { type: 'plain_text', text: 'Enviar Mensaje' },
+        title: { type: 'plain_text', text: 'Enviar mensaje' },
         submit: { type: 'plain_text', text: 'Enviar' },
         close: { type: 'plain_text', text: 'Cancelar' },
         blocks: [
@@ -45,79 +36,52 @@ app.command('/mensaje', async ({ ack, body, client }) => {
             type: 'input',
             block_id: 'message_block',
             label: { type: 'plain_text', text: 'Mensaje' },
-            element: { type: 'plain_text_input', action_id: 'message_input', multiline: true }
+            element: { type: 'plain_text_input', action_id: 'message_input', multiline: true },
           },
           {
             type: 'input',
-            block_id: 'public_channels_block',
-            label: { type: 'plain_text', text: 'Canales Públicos' },
+            block_id: 'channels_block',
+            label: { type: 'plain_text', text: 'Selecciona canales' },
             element: {
               type: 'multi_static_select',
-              action_id: 'public_channels_select',
-              options: publicChannels
+              action_id: 'channels_select',
+              placeholder: { type: 'plain_text', text: 'Canales disponibles' },
+              options: channels,
             },
-            optional: true
           },
-          {
-            type: 'input',
-            block_id: 'private_channels_block',
-            label: { type: 'plain_text', text: 'Canales Privados' },
-            element: {
-              type: 'multi_static_select',
-              action_id: 'private_channels_select',
-              options: privateChannels
-            },
-            optional: true
-          }
-        ]
-      }
+        ],
+      },
     });
   } catch (error) {
     console.error('Error abriendo modal:', error);
   }
 });
 
-// Maneja el envío del modal
+// Listener para el envío del modal
 app.view('send_message_modal', async ({ ack, body, view, client }) => {
-  await ack();
+  await ack(); // Confirmar a Slack que recibimos el modal
 
-  const user = body.user.id;
-  const message = view.state.values.message_block.message_input.value;
-  const publicChannels = view.state.values.public_channels_block?.public_channels_select?.selected_options || [];
-  const privateChannels = view.state.values.private_channels_block?.private_channels_select?.selected_options || [];
+  try {
+    const message = view.state.values['message_block']['message_input'].value;
+    const channelIds = view.state.values['channels_block']['channels_select'].selected_options.map(o => o.value);
 
-  const channels = [...publicChannels, ...privateChannels].map(o => o.value);
-
-  if (!message || channels.length === 0) {
-    await client.chat.postMessage({
-      channel: user,
-      text: '⚠️ Debes escribir un mensaje y seleccionar al menos un canal.'
-    });
-    return;
-  }
-
-  const successful = [];
-  const failed = [];
-
-  for (const channel of channels) {
-    try {
-      await client.chat.postMessage({ channel, text: message });
-      successful.push(channel);
-    } catch (err) {
-      console.error(`Error enviando a canal ${channel}:`, err);
-      failed.push(channel);
+    // Enviar mensaje a todos los canales seleccionados
+    for (const channel of channelIds) {
+      await client.chat.postMessage({
+        channel,
+        text: message,
+      });
     }
+  } catch (error) {
+    console.error('Error enviando mensajes:', error);
   }
-
-  // Confirma al usuario
-  let confirmation = `✅ Mensaje enviado correctamente a ${successful.length} canal(es).`;
-  if (failed.length > 0) {
-    confirmation += `\n⚠️ No se pudo enviar a ${failed.length} canal(es).`;
-  }
-
-  await client.chat.postMessage({ channel: user, text: confirmation });
 });
 
+// Express server
+const expressApp = express();
+expressApp.listen(10000, () => console.log('Servidor Express escuchando en puerto 10000'));
+
+// Start Bolt app
 (async () => {
   await app.start();
   console.log('⚡️ Slack Bolt app corriendo en Socket Mode');
